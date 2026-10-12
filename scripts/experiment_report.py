@@ -990,30 +990,32 @@ def build_markdown(run: Dict[str, Any], baseline: Optional[Dict[str, Any]],
     L.append("")
 
     # ---- headline tiles ------------------------------------------------
-    L.append('<div class="kpi-row">')
-    for key, label, comp, threshold, _note in _thresholds(tol):
-        value = ev.get(key)
-        ok = _passes(value, comp, threshold)
-        cls = "kpi ok" if ok else ("kpi warn" if ok is False else "kpi na")
-        shown = "—" if value is None else f"{value:.3f}"
-        status = "PASS" if ok else ("CHECK" if ok is False else "n/a")
-        L.append(f'<div class="{cls}"><div class="kpi-value">{shown}</div>'
-                 f'<div class="kpi-label">{label}</div>'
-                 f'<div class="kpi-status">{status}</div></div>')
-    L.append("</div>")
-    L.append("")
+    if ev:
+        L.append('<div class="kpi-row">')
+        for key, label, comp, threshold, _note in _thresholds(tol):
+            value = ev.get(key)
+            ok = _passes(value, comp, threshold)
+            cls = "kpi ok" if ok else ("kpi warn" if ok is False else "kpi na")
+            shown = "—" if value is None else f"{value:.3f}"
+            status = "PASS" if ok else ("CHECK" if ok is False else "n/a")
+            L.append(f'<div class="{cls}"><div class="kpi-value">{shown}</div>'
+                     f'<div class="kpi-label">{label}</div>'
+                     f'<div class="kpi-status">{status}</div></div>')
+        L.append("</div>")
+        L.append("")
 
     # ---- verdict -------------------------------------------------------
-    L.append("## Verdict")
-    L.append("")
-    for line in _reading(ev, tol):
-        L.append(f"- {line}")
-    L.append("")
-    L.append("> Totals and spread are separate questions. Over- and under-simulating "
-             "stations cancel in the total, so a ratio near 1.0 is consistent with "
-             "both a uniformly accurate model and a widely scattered one. The CV "
-             "and the p10/p90 range distinguish them.")
-    L.append("")
+    if ev:
+        L.append("## Verdict")
+        L.append("")
+        for line in _reading(ev, tol):
+            L.append(f"- {line}")
+        L.append("")
+        L.append("> Totals and spread are separate questions. Over- and under-simulating "
+                 "stations cancel in the total, so a ratio near 1.0 is consistent with "
+                 "both a uniformly accurate model and a widely scattered one. The CV "
+                 "and the p10/p90 range distinguish them.")
+        L.append("")
 
     # ---- metrics table -------------------------------------------------
     # ---- demand validation ---------------------------------------------
@@ -1214,26 +1216,42 @@ def build_markdown(run: Dict[str, Any], baseline: Optional[Dict[str, Any]],
 
     L.append("## Count validation")
     L.append("")
-    header = "| Metric | Value |"
-    divide = "|---|---:|"
-    if baseline:
-        header += " Baseline |"
-        divide += "---:|"
-    header += " Target | Status | What the number is |"
-    divide += "---|:--:|---|"
-    L.append(header)
-    L.append(divide)
-    for key, label, comp, threshold, note in _thresholds(tol):
-        value = ev.get(key)
-        ok = _passes(value, comp, threshold)
-        target = f"{comp} {threshold}" if comp != "~1" else f"1.0 ± {threshold:.2f}"
-        status = "**PASS**" if ok else ("**CHECK**" if ok is False else "n/a")
-        row = f"| {label} | **{_fmt(value)}** |"
+    if not ev:
+        L.append(
+            "> **Not evaluated.** Traffic-count validation was not run for this "
+            "experiment, so no observed-versus-simulated count metrics are "
+            "available. This does not indicate that the MATSim simulation failed."
+        )
+        L.append("")
+        L.append(
+            "Enable count generation and provide matching count stations to "
+            "populate this section on a future run."
+        )
+        L.append("")
+        # There are no count-validation values to render. Avoid showing a
+        # table of placeholders that looks like a failed simulation.
+        ev = {}
+    else:
+        header = "| Metric | Value |"
+        divide = "|---|---:|"
         if baseline:
-            row += f" {_fmt(base_ev.get(key))} |"
-        row += f" `{target}` | {status} | {note} |"
-        L.append(row)
-    L.append("")
+            header += " Baseline |"
+            divide += "---:|"
+        header += " Target | Status | What the number is |"
+        divide += "---|:--:|---|"
+        L.append(header)
+        L.append(divide)
+        for key, label, comp, threshold, note in _thresholds(tol):
+            value = ev.get(key)
+            ok = _passes(value, comp, threshold)
+            target = f"{comp} {threshold}" if comp != "~1" else f"1.0 ± {threshold:.2f}"
+            status = "**PASS**" if ok else ("**CHECK**" if ok is False else "n/a")
+            row = f"| {label} | **{_fmt(value)}** |"
+            if baseline:
+                row += f" {_fmt(base_ev.get(key))} |"
+            row += f" `{target}` | {status} | {note} |"
+            L.append(row)
+        L.append("")
 
     # ---- time of day ---------------------------------------------------
     # A single daily ratio can look fine while individual parts of the day are
@@ -1283,35 +1301,36 @@ def build_markdown(run: Dict[str, Any], baseline: Optional[Dict[str, Any]],
     #     hourly error figures, both of which show the profile itself.
     #   * "% stations with daily GEH < 10" is a strictly weaker test than the
     #     < 5 row beside it, so it can never disagree in a way worth acting on.
-    L.append("### Supporting numbers")
-    L.append("")
-    L.append("Detail not shown above or in the figures.")
-    L.append("")
-    rows: List[Tuple[str, Any, Any]] = [
-        ("Physical stations", ev.get("num_devices"), base_ev.get("num_devices")),
-        ("Station-directions", ev.get("num_directional_counts"),
-         base_ev.get("num_directional_counts")),
-        ("Station-hours compared", ev.get("num_comparisons"),
-         base_ev.get("num_comparisons")),
-        ("Ratio p10", ev.get("station_ratio_p10"), base_ev.get("station_ratio_p10")),
-        ("Ratio p90", ev.get("station_ratio_p90"), base_ev.get("station_ratio_p90")),
-        ("% stations with daily GEH < 5", ev.get("station_daily_geh_lt5_pct"),
-         base_ev.get("station_daily_geh_lt5_pct")),
-        ("Stations under 10% of observed", ev.get("num_stations_below_10pct"),
-         base_ev.get("num_stations_below_10pct")),
-        ("MAE (vehicles/hour)", ev.get("mae"), base_ev.get("mae")),
-        ("RMSE (vehicles/hour)", ev.get("rmse"), base_ev.get("rmse")),
-    ]
-    L.append("| Metric | Value |" + (" Baseline |" if baseline else ""))
-    L.append("|---|---:|" + ("---:|" if baseline else ""))
-    for label, value, bvalue in rows:
-        decimals = 1 if "%" in label else 3
-        line = f"| {label} | {_fmt(value, decimals)} |"
-        if baseline:
-            line += f" {_fmt(bvalue, decimals)} |"
-        L.append(line)
-    L.append("")
-    L.extend(_glossary_block(GLOSSARY))
+    if ev:
+        L.append("### Supporting numbers")
+        L.append("")
+        L.append("Detail not shown above or in the figures.")
+        L.append("")
+        rows: List[Tuple[str, Any, Any]] = [
+            ("Physical stations", ev.get("num_devices"), base_ev.get("num_devices")),
+            ("Station-directions", ev.get("num_directional_counts"),
+             base_ev.get("num_directional_counts")),
+            ("Station-hours compared", ev.get("num_comparisons"),
+             base_ev.get("num_comparisons")),
+            ("Ratio p10", ev.get("station_ratio_p10"), base_ev.get("station_ratio_p10")),
+            ("Ratio p90", ev.get("station_ratio_p90"), base_ev.get("station_ratio_p90")),
+            ("% stations with daily GEH < 5", ev.get("station_daily_geh_lt5_pct"),
+             base_ev.get("station_daily_geh_lt5_pct")),
+            ("Stations under 10% of observed", ev.get("num_stations_below_10pct"),
+             base_ev.get("num_stations_below_10pct")),
+            ("MAE (vehicles/hour)", ev.get("mae"), base_ev.get("mae")),
+            ("RMSE (vehicles/hour)", ev.get("rmse"), base_ev.get("rmse")),
+        ]
+        L.append("| Metric | Value |" + (" Baseline |" if baseline else ""))
+        L.append("|---|---:|" + ("---:|" if baseline else ""))
+        for label, value, bvalue in rows:
+            decimals = 1 if "%" in label else 3
+            line = f"| {label} | {_fmt(value, decimals)} |"
+            if baseline:
+                line += f" {_fmt(bvalue, decimals)} |"
+            L.append(line)
+        L.append("")
+        L.extend(_glossary_block(GLOSSARY))
 
     # ---- freight -------------------------------------------------------
     L.extend(_freight_section(summary, baseline, mo))
