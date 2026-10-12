@@ -454,6 +454,33 @@ function setupSimulation() {
   evalToggle.addEventListener('change', () => {
     evalSettings.style.display = evalToggle.checked ? 'block' : 'none';
   });
+
+  document.getElementById('btnStartSim').addEventListener('click', startSimulation);
+}
+
+async function startSimulation() {
+  const button = document.getElementById('btnStartSim');
+  button.disabled = true;
+
+  try {
+    const resp = await fetch('/api/experiments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(collectFormData()),
+    });
+    const result = await resp.json();
+
+    if (!resp.ok) {
+      throw new Error(result.detail || 'The simulation could not be started.');
+    }
+
+    alert(`Simulation started (process ${result.pid}).`);
+  } catch (err) {
+    console.error('Simulation start failed:', err);
+    alert(`Simulation start failed: ${err.message}`);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 // ==========================================================================
