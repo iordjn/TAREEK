@@ -244,6 +244,53 @@ class ConfigManager:
             ET.SubElement(target_block, 'param', {'name': param_name, 'value': str(param_value)})
         logger.info(f"Applied scoring.modeParams.{mode}.{param_name} = {param_value}")
 
+    def ensure_mode_params(self, tree: ET.ElementTree) -> None:
+        """Declare scoring blocks for every enabled mode used by generated plans."""
+        modes_config = self.config.get('modes', {})
+        modes = {
+            mode_cfg.get('matsim_mode')
+            for mode_cfg in modes_config.values()
+            if isinstance(mode_cfg, dict)
+            and mode_cfg.get('enabled', True)
+            and mode_cfg.get('matsim_mode')
+        }
+        if not modes:
+            return
+
+        root = tree.getroot()
+        scoring = next(
+            (module for module in root.findall('module')
+             if module.get('name') == 'scoring'),
+            None,
+        )
+        if scoring is None:
+            logger.warning("scoring module missing — cannot declare mode parameters")
+            return
+
+        scoring_params = scoring.find("parameterset[@type='scoringParameters']")
+        if scoring_params is None:
+            logger.warning(
+                "scoringParameters missing — cannot declare mode parameters"
+            )
+            return
+
+        declared = {
+            mode_param.get('value')
+            for mode_params in scoring_params.findall(
+                "parameterset[@type='modeParams']"
+            )
+            for mode_param in [mode_params.find("param[@name='mode']")]
+            if mode_param is not None
+        }
+        for mode in sorted(modes - declared):
+            mode_params = ET.SubElement(
+                scoring_params,
+                'parameterset',
+                {'type': 'modeParams'},
+            )
+            ET.SubElement(mode_params, 'param', {'name': 'mode', 'value': mode})
+            logger.info(f"Created scoring modeParams block for mode={mode}")
+
     def update_scoring_param(
         self,
         tree: ET.ElementTree,
@@ -897,6 +944,7 @@ class ConfigManager:
 
         # Load template
         tree = self.load_template(mode)
+        self.ensure_mode_params(tree)
 
         # Get configurable parameters from main config
         configurable = self.matsim_config.get('configurable_params', {})
