@@ -5,12 +5,16 @@ Serves:
   - Static frontend files
   - /api/counties  -> GeoJSON county boundaries + population
   - /api/export    -> Assemble and download config.json
+  - /api/experiments -> Start the default TAREEK experiment
 """
 
 import json
 import zipfile
 import io
 import os
+import subprocess
+import sys
+from copy import deepcopy
 from pathlib import Path
 from typing import Optional
 
@@ -20,6 +24,15 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import geopandas as gpd
 import requests
+
+# The webapp is commonly launched with webapp/ as the working directory.
+# Make the repository-level validator importable in that launch mode.
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from utils.config_validator import ConfigValidationError, ConfigValidator
+from run_experiment import ExperimentRunner
 
 app = FastAPI(title="Simulation Config Wizard")
 
@@ -31,7 +44,6 @@ app.add_middleware(
 )
 
 # Paths
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent  # e:/projects/code
 DATA_DIR = PROJECT_ROOT / "data"
 COUNTIES_DIR = DATA_DIR / "counties"
 SHAPEFILE_PATH = COUNTIES_DIR / "cb_2022_us_county_500k.shp"
@@ -45,7 +57,10 @@ CENSUS_POP_URL = "https://api.census.gov/data/2022/acs/acs5"
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
 # Default config template (reference)
-DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "USA" / "LA" / "config_la.json"
+DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "config_local.json"
+EXPERIMENT_RUNNER_PATH = PROJECT_ROOT / "run_experiment.py"
+EXPERIMENTS_DIR = PROJECT_ROOT / "experiments"
+experiment_processes: dict[int, subprocess.Popen] = {}
 
 
 def ensure_shapefile():
@@ -191,6 +206,74 @@ async def get_defaults():
     return JSONResponse(defaults)
 
 
+@app.post("/api/experiments", status_code=202)
+async def start_experiment(request: Request):
+    """Validate and start an experiment using the wizard's configuration."""
+    if not DEFAULT_CONFIG_PATH.exists():
+        raise HTTPException(
+            500,
+            f"Default configuration not found: {DEFAULT_CONFIG_PATH}",
+        )
+    if not EXPERIMENT_RUNNER_PATH.exists():
+        raise HTTPException(
+            500,
+            f"Experiment runner not found: {EXPERIMENT_RUNNER_PATH}",
+        )
+
+    try:
+        form_data = await request.json()
+    except Exception:
+        raise HTTPException(400, "Invalid JSON body")
+    if not isinstance(form_data, dict):
+        raise HTTPException(400, "Experiment configuration must be a JSON object")
+
+    experiment_id = ExperimentRunner._generate_experiment_id("web_experiment")
+    experiment_dir = EXPERIMENTS_DIR / experiment_id
+    generated_config_path = experiment_dir / "config_input.json"
+    try:
+        config = build_experiment_config(form_data)
+        _make_config_paths_absolute(config)
+        experiment_dir.mkdir(parents=True, exist_ok=True)
+        with generated_config_path.open("w") as config_file:
+            json.dump(config, config_file, indent=2)
+
+        ConfigValidator(generated_config_path).validate()
+    except ConfigValidationError as exc:
+        generated_config_path.unlink(missing_ok=True)
+        raise HTTPException(400, f"Invalid experiment configuration: {exc}") from exc
+    except OSError as exc:
+        generated_config_path.unlink(missing_ok=True)
+        raise HTTPException(500, f"Could not prepare experiment configuration: {exc}") from exc
+
+    command = [
+        sys.executable,
+        str(EXPERIMENT_RUNNER_PATH),
+        "--config",
+        str(generated_config_path),
+        "--experiment-id",
+        experiment_id,
+    ]
+
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=PROJECT_ROOT,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError as exc:
+        raise HTTPException(500, f"Could not start experiment runner: {exc}") from exc
+
+    experiment_processes[process.pid] = process
+    return {
+        "status": "started",
+        "pid": process.pid,
+        "experiment_id": experiment_id,
+        "config": str(generated_config_path.relative_to(PROJECT_ROOT)),
+    }
+
+
 def get_default_config():
     """Load defaults from the reference config, stripping comments."""
     if DEFAULT_CONFIG_PATH.exists():
@@ -208,6 +291,74 @@ def strip_comments(obj):
     if isinstance(obj, list):
         return [strip_comments(item) for item in obj]
     return obj
+
+
+def _deep_merge(base: dict, override: dict) -> dict:
+    """Merge wizard values into defaults while retaining hidden config keys."""
+    merged = deepcopy(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = deepcopy(value)
+    return merged
+
+
+def build_experiment_config(form_data: dict) -> dict:
+    """Build a validated wizard config while retaining server-owned settings."""
+    defaults = get_default_config()
+    wizard_config = assemble_config(form_data)
+    config = _deep_merge(defaults, wizard_config)
+    config.setdefault("data", {})["surveys"] = _merge_survey_configs(
+        defaults.get("data", {}).get("surveys", []),
+        wizard_config.get("data", {}).get("surveys", []),
+    )
+
+    # These values are intentionally never accepted from browser input.
+    config.setdefault("gtfs", {})["api_keys"] = deepcopy(
+        defaults.get("gtfs", {}).get("api_keys", {})
+    )
+    for section in ("logging", "network", "coordinates"):
+        if section in defaults:
+            config[section] = deepcopy(defaults[section])
+
+    return config
+
+
+def _merge_survey_configs(defaults: list, submitted: list) -> list:
+    """Retain survey files and roles while applying wizard survey settings."""
+    default_by_key = {
+        (entry.get("type"), str(entry.get("year", ""))): entry
+        for entry in defaults
+        if isinstance(entry, dict)
+    }
+    merged = []
+    for entry in submitted:
+        if not isinstance(entry, dict):
+            merged.append(entry)
+            continue
+        key = (entry.get("type"), str(entry.get("year", "")))
+        merged.append(_deep_merge(default_by_key.get(key, {}), entry))
+    return merged
+
+
+def _make_config_paths_absolute(config: dict) -> None:
+    """Keep data paths valid when the input config lives in experiments/."""
+    data_dir = Path(config.get("data", {}).get("data_dir", "data"))
+    if not data_dir.is_absolute():
+        config["data"]["data_dir"] = str((PROJECT_ROOT / "config" / data_dir).resolve())
+
+    for section, key in (
+        ("gtfs", "cache_dir"),
+        ("evaluation", "ground_truth_data_dir"),
+    ):
+        value = config.get(section, {}).get(key)
+        if value and not Path(value).is_absolute():
+            config[section][key] = str((PROJECT_ROOT / value).resolve())
+
+    fha_dir = config.get("counts", {}).get("fha", {}).get("data_dir")
+    if fha_dir and not Path(fha_dir).is_absolute():
+        config["counts"]["fha"]["data_dir"] = str((PROJECT_ROOT / fha_dir).resolve())
 
 
 def assemble_config(form_data: dict) -> dict:

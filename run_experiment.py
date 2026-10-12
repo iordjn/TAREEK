@@ -277,10 +277,11 @@ class ExperimentRunner:
             'end_time': None,
         }
 
-    def _generate_experiment_id(self) -> str:
-        """Generate timestamp-based experiment ID"""
+    @staticmethod
+    def _generate_experiment_id(prefix: str = "experiment") -> str:
+        """Generate a timestamp-based experiment ID with the given prefix."""
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        return f"experiment_{timestamp}"
+        return f"{prefix}_{timestamp}"
 
     def _validate_network_file(self, network_path: Path) -> bool:
         """
@@ -1850,7 +1851,17 @@ class ExperimentRunner:
             self._scale_transit_pce()
 
             # Step 3b: Generate counts.xml (for MATSim validation)
-            self.generate_counts()
+            counts_path = self.generate_counts()
+            if counts_path is None and self.config.get('counts', {}).get('enabled', True):
+                # Counts generation can legitimately produce no file when no
+                # stations match the selected network. MATSim must not retain
+                # a counts input reference in that case.
+                logger.warning(
+                    "Counts file unavailable; disabling MATSim counts validation "
+                    "for this run"
+                )
+                self.config.setdefault('counts', {})['enabled'] = False
+                self.setup_matsim_config()
 
             # Step 4: Generate plans
             self.generate_plans()

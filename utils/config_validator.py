@@ -4,7 +4,9 @@ Validates all config parameters upfront before starting experiments
 """
 
 import json
+import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -27,11 +29,13 @@ _INSTALL_HINTS = {
     'java': {
         'linux': 'sudo apt-get install openjdk-21-jre-headless',
         'darwin': 'brew install openjdk@21',
-        'win32': 'Install a JRE 17+ from https://adoptium.net/ and add it to PATH',
+        'win32': 'Install a JDK 21+ from https://adoptium.net/ and add it to PATH',
         'any': 'conda install -c conda-forge openjdk=21',
         'docs': 'README.md (Prerequisites)',
     },
 }
+
+_MINIMUM_JAVA_MAJOR = 21
 
 
 def _install_hint(tool: str) -> str:
@@ -162,8 +166,46 @@ class ConfigValidator:
                 + "\n\n".join(f"  {_install_hint(t)}" for t in missing)
             )
 
+        if 'java' in required:
+            java_major = self._java_major_version()
+            if java_major < _MINIMUM_JAVA_MAJOR:
+                raise ConfigValidationError(
+                    f"Java {_MINIMUM_JAVA_MAJOR}+ is required for the bundled MATSim "
+                    f"jar, but Java {java_major} is active on PATH. "
+                    f"Install a JDK {_MINIMUM_JAVA_MAJOR}+ and ensure its java "
+                    "executable comes first on PATH."
+                )
+
         if required:
             logger.info(f"External tools found: {', '.join(required)}")
+
+    @staticmethod
+    def _java_major_version() -> int:
+        """Return the major version reported by the active Java executable."""
+        try:
+            result = subprocess.run(
+                ['java', '-version'],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise ConfigValidationError(
+                f"Unable to determine the Java version: {exc}. "
+                f"Java {_MINIMUM_JAVA_MAJOR}+ is required for MATSim."
+            ) from exc
+
+        version_output = f"{result.stdout}\n{result.stderr}"
+        match = re.search(r'version "(\d+)(?:\.(\d+))?', version_output)
+        if not match:
+            raise ConfigValidationError(
+                "Unable to determine the Java version from `java -version`. "
+                f"Java {_MINIMUM_JAVA_MAJOR}+ is required for MATSim."
+            )
+
+        major = int(match.group(1))
+        return int(match.group(2)) if major == 1 and match.group(2) else major
 
     def _has_cached_network(self) -> bool:
         """True when the network cache holds at least one entry.
