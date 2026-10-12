@@ -361,3 +361,23 @@ def test_build_markdown_places_budget_before_counts(tmp_path):
                           None, None)
     assert "## Demand budget" in md
     assert md.index("## Demand budget") < md.index("## Count validation")
+
+
+@pytest.mark.smoke
+def test_count_validation_explains_when_evaluation_was_not_run(tmp_path):
+    summary = {
+        "created_at": "2026-10-12T15:13:28",
+        "parameters": {"scaling_factor": 0.105},
+        "matsim_output": {},
+    }
+    md = R.build_markdown(
+        {"summary": summary, "evaluation": {}, "dir": tmp_path},
+        None,
+        None,
+    )
+
+    assert "**Not evaluated.**" in md
+    assert "no observed-versus-simulated count metrics are available" in md
+    assert '<div class="kpi-row">' not in md
+    assert "| Overall volume (sim/obs) |" not in md
+    assert "| Physical stations |" not in md

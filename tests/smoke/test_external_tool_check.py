@@ -76,3 +76,18 @@ def test_java_not_required_when_simulation_is_off(tmp_path, monkeypatch):
     )
     cfg = _write_config(tmp_path, matsim={'run_simulation': False})
     ConfigValidator(cfg)._validate_external_tools()
+
+
+@pytest.mark.smoke
+def test_old_java_is_rejected(tmp_path, monkeypatch):
+    monkeypatch.setattr('utils.config_validator.shutil.which',
+                        lambda tool: f'/usr/bin/{tool}')
+    monkeypatch.setattr(
+        'utils.config_validator.subprocess.run',
+        lambda *args, **kwargs: type(
+            'Result', (), {'stdout': '', 'stderr': 'openjdk version "17.0.12"'}
+        )(),
+    )
+
+    with pytest.raises(ConfigValidationError, match='Java 21\\+'):
+        ConfigValidator(_write_config(tmp_path))._validate_external_tools()
