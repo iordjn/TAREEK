@@ -63,4 +63,24 @@ webapp/
 6. **Time & Duration** — Activity duration constraints, time model settings
 7. **Simulation** — MATSim iterations, capacity factors, traffic counts, evaluation
 
+## Starting the default experiment
+
+The backend can start the experiment runner with the configuration submitted
+by the wizard:
+
+```bash
+curl -X POST http://localhost:8000/api/experiments
+```
+
+The endpoint returns `202 Accepted` with the child process ID. It starts
+The backend merges the wizard values into the local configuration template,
+preserves server-owned values such as API keys and hidden settings, validates
+the generated configuration with `ConfigValidator`, and then starts
+`run_experiment.py` asynchronously. The generated input is stored in the
+new timestamped directory under `experiments/` named
+`web_experiment_YYYYMMDD_HHMMSS`, matching the CLI experiment directory
+convention. The runner also writes `config_used.json` and the other run
+artifacts there. It does not wait for the simulation to finish or expose its
+logs yet.
+
 The final step exports a complete `config.json` ready for `run_experiment.py`.

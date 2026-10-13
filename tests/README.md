@@ -8,7 +8,7 @@ DuckDB / Java stays green.
 |---|---|---|---|---|
 | `pytest` | `smoke` | nothing | seconds | after every bug fix / commit |
 | `pytest -m e2e` | `e2e` | `data/db/trafficsim1.2.duckdb` | minutes | before pushing pipeline changes |
-| `pytest -m e2e_matsim` | `e2e_matsim` | DuckDB + Java + jar | many minutes | when touching MATSim wiring |
+| `pytest -m e2e_matsim` | `e2e_matsim` | DuckDB + Java 21+ + jar | many minutes | when touching MATSim wiring |
 | `pytest -m ""` | all | all of the above | slow | full sweep (fails loudly if deps missing) |
 
 ## What each tier covers
