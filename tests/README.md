@@ -23,6 +23,9 @@ DuckDB / Java stays green.
   TBI), the survey-month window and trip filter, the demand budget helpers and
   `compute_demand_budget()` end to end (no DB, no ACS), and the validator
   rules for `person_file`, `survey_months` and the demand knobs.
+  Includes `test_scenarios.py`: the What-If scenario file checks, closing links
+  in a copy of `network.xml`, the cut-off check, and the road grouping of the
+  compare report (toy networks, no MATSim).
 - **`e2e/`** — runs the real `ExperimentRunner` on `fixtures/config_smoke.json`
   (one county, tiny scaling, `--skip-simulation`) and asserts `plans.xml` /
   `network.xml` are valid and non-trivial.
