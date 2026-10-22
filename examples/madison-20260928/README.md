@@ -81,6 +81,12 @@ Output goes to `experiments/<experiment-id>/`. The large files (`network.xml`,
 makes them again from the config. The first freight run downloads the HPMS road data
 for the region; later runs use the cache in `data/hpms`.
 
+To see the output of this run without running it, download
+[`tareek-vis-sample-madison.zip`](https://huggingface.co/datasets/Jalalk1/tareek-vis-sample-madison)
+(500 MB) from Hugging Face. It has the MATSim network, events and transit schedule of
+this run, and the counts. Open the unzipped folder in
+[TAREEK-Vis](https://github.com/jalal1/TAREEK-Vis) to play the simulation.
+
 For the setup steps, see the **[project README](../../README.md#quick-start)**. The API
 keys in the config are **optional** — see [Optional API keys](#optional-api-keys).
 

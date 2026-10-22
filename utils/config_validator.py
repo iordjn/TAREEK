@@ -304,6 +304,13 @@ class ConfigValidator:
                 "Network 'clean_network' must be a boolean (true/false)"
             )
 
+        per_lane = network_config.get('roundabout_capacity_per_lane')
+        if per_lane is not None and (isinstance(per_lane, bool)
+                                     or not isinstance(per_lane, (int, float)) or per_lane <= 0):
+            raise ConfigValidationError(
+                "Network 'roundabout_capacity_per_lane' must be a positive number (veh/h per lane) or null"
+            )
+
     def _validate_matsim_config(self):
         """Validate MATSim configuration"""
         matsim_config = self.config.get('matsim', {})
