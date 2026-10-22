@@ -29,6 +29,7 @@ again. Some research directions and practical problems that TAREEK can help with
 
 - **What-if studies on the road network.** Close a road, add a lane, or change the speed
   or capacity of a link, then measure the effect on travel times and traffic volumes.
+  Road closures are built in: see [What-If Scenarios](#what-if-scenarios-road-closures).
 - **Transit planning.** Test a new or extended transit line, or a change in service, and
   see how mode shares and traffic change.
 - **Congestion and bottleneck analysis.** Find the links that are congested at each hour
@@ -226,6 +227,35 @@ python run_experiment.py --config config/config.json
 ```
 
 > **Coming soon:** run simulations directly from the web app.
+
+---
+
+## What-If Scenarios (road closures)
+
+Close one or more roads in a finished run, run the simulation again, and see where the
+traffic goes. Use it for a work zone, a bridge closure, a flood, a planned event, or to
+find the links whose loss hurts the network most.
+
+The scenario run uses the same people, trips, settings and random seed as the baseline
+run. The only difference is the closure.
+
+1. Make a baseline run (see [Quick start](#quick-start)).
+2. Open its `output` folder in [TAREEK-Vis](https://github.com/jalal1/TAREEK-Vis),
+   Ctrl+click the roads to close, and export a scenario file. See
+   [What-if scenarios](https://github.com/jalal1/TAREEK-Vis/blob/main/help/scenarios.md)
+   in the TAREEK-Vis help. You can also write the small JSON file by hand.
+3. Run the scenario:
+
+```bash
+python run_scenario.py run --base experiments/<experiment-id> --scenario my_closure.json
+```
+
+The result is a new folder, `experiments/<experiment-id>__<name>/`, with a compare
+report (`compare_report.html`), a table of the volume change on every link
+(`link_changes.csv`), and the normal MATSim output that you can open in TAREEK-Vis.
+
+For the scenario file, all the commands, how to read the report, and the limits, see the
+**[What-If Scenarios guide](scenarios/README.md)**.
 
 ---
 

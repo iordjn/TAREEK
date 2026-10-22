@@ -127,6 +127,8 @@ The network generator converts OpenStreetMap data to a MATSim-compatible network
 
 The pipeline produces three output files: `network.xml`, `transitSchedule.xml`, and `transitVehicles.xml`.
 
+**Roundabout capacity** (optional): pt2matsim gives a link the defaults of its `highway` tag only, so a roundabout on a tertiary road gets the tertiary capacity (600 veh/h), about half of a real single-lane roundabout (HCM: about 1,100-1,400 veh/h). With `network.roundabout_capacity_per_lane` set, each link tagged `junction=roundabout` gets `capacity = value x permlanes` (`matsim/roundabouts.py`). The step runs on the experiment's copy of `network.xml`, so the network cache keeps the pt2matsim output, no rebuild is necessary, and link IDs do not change. Capacity is only raised, never lowered. `null` (the default) keeps the pt2matsim value.
+
 ### Coordinate System
 
 The coordinate system is auto-detected from the configured counties' centroids by determining the appropriate NAD83 UTM zone, with an optional user override in the configuration.
@@ -287,6 +289,8 @@ The output includes event files, link volume data, and agent plan evolution acro
 - The `hermes` module rejects unknown parameters as a fatal error. QSim-only parameters such as `vehiclesSource` are therefore written to `qsim` only; Hermes still applies PCE through the scenario vehicle types.
 - `hermes.stuckTime` is an integer (default 10 s).
 - MATSim warns that Hermes should run with `eventsManager.oneThreadPerHandler`; the base template does not set this yet.
+
+**What-If Scenarios**: `run_scenario.py` runs a finished experiment again with roads closed (`scenarios/`). It copies the baseline `config.xml` without changes and hard-links its inputs, so the scenario has the same plans, settings, seed and iterations. In a copy of `network.xml` it removes `car` from each closed link (other modes stay; a link with no mode left gets the placeholder mode `closed`), so link IDs stay the same in both runs. It also closes the car links that the closure cuts off from the largest strongly connected part of the car network. After MATSim, `scenarios/compare.py` compares the last linkstats of the two runs link by link and writes `link_changes.csv` and `compare_report.html`. See the [What-If Scenarios guide](scenarios/README.md).
 
 ---
 
@@ -516,6 +520,7 @@ Enable custom counts in the configuration:
 | Add a new transit mode | Configuration JSON mode definitions + GTFS route type mapping |
 | Change the network generation | `matsim/` — pt2matsim wrapper |
 | Add new evaluation metrics | `matsim/` — evaluation module |
+| Add a scenario type (for example lane reduction) | `scenarios/definition.py` (file format), `scenarios/network.py` (network edit), `scenarios/compare.py` (report) |
 | Extend the web UI | `webapp/` — Flask application |
 | Add new data sources to the DB | `utils/` — DB manager |
 
