@@ -400,6 +400,7 @@ class NetworkManager:
                             counties, polygon, db_manager
                         )
 
+            self._apply_network_adjustments(config, output_path)
             return output_path, cached_metadata
 
         # Generate new network
@@ -430,4 +431,15 @@ class NetworkManager:
         )
 
         logger.info(f"Generated and cached new network: {network_hash}")
+        self._apply_network_adjustments(config, output_path)
         return output_path, metadata
+
+    @staticmethod
+    def _apply_network_adjustments(config: Dict, network_path: Path) -> None:
+        """Adjust the experiment's copy of the network. The cache keeps the raw
+        pt2matsim output, so these settings need no rebuild and do not change
+        link IDs."""
+        per_lane = config.get('network', {}).get('roundabout_capacity_per_lane')
+        if per_lane:
+            from matsim.roundabouts import apply_roundabout_capacity
+            apply_roundabout_capacity(network_path, per_lane)
