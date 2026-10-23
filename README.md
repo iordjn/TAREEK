@@ -168,18 +168,15 @@ and we recommend it.
 3. Type this command and press Enter. When it asks `Proceed ([y]/n)?`, type `y`.
 
    ```bash
-   conda create -n tareek -c conda-forge python=3.12 openjdk=21 osmium-tool
+   conda create -n tareek -c conda-forge python=3.12 openjdk=21 osmium-tool git
    ```
 
-4. Activate the environment:
-
-   ```bash
-   conda activate tareek
-   ```
-
-Each time you open a new prompt to use TAREEK, do step 4 again.
+   This also installs Git, which you use in [Setup](#2-setup).
 
 #### Option B: install each program separately
+
+Use this option if you already have Python or Java. On Windows, osmium-tool is available
+only through conda, so Option A is less work there.
 
 <details>
 <summary>Python</summary>
@@ -228,25 +225,28 @@ If a program is missing, TAREEK stops before it downloads data and tells you wha
 
 ### 2. Setup
 
-Get the code. If you do not have Git, click **Code → Download ZIP** on the
-[GitHub page](https://github.com/jalal1/TAREEK), extract the ZIP file, and open a terminal
-in the extracted folder.
+Open your prompt (Option A: **Miniforge Prompt** on Windows, a terminal on macOS/Linux).
+Then get the code and go into its folder:
 
 ```bash
 git clone https://github.com/jalal1/TAREEK.git
 cd TAREEK
 ```
 
-Install the Python packages.
+No Git? On the [GitHub page](https://github.com/jalal1/TAREEK), click
+**Code → Download ZIP** and extract it. Then go into the folder, for example
+`cd Downloads\TAREEK-main` (macOS/Linux: `cd ~/Downloads/TAREEK-main`).
 
-**If you used Option A** (in the Miniforge Prompt or the macOS/Linux terminal):
+Install the Python packages:
+
+**Option A:**
 
 ```bash
 conda activate tareek
 pip install -r requirements.txt
 ```
 
-**If you used Option B:**
+**Option B:**
 
 ```bash
 # Windows
@@ -263,6 +263,10 @@ pip install -r requirements.txt
 > **Windows PowerShell:** if `activate` gives the error "running scripts is disabled on
 > this system", run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once, or use
 > Command Prompt (`cmd`) instead.
+
+**Next time** you use TAREEK, open the same prompt, `cd` into the TAREEK folder, and
+activate again (`conda activate tareek` for Option A, or the `activate` line above for
+Option B).
 
 ### 3. Configure
 
