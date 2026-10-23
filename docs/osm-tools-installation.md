@@ -17,7 +17,7 @@ brew install osmium-tool
 ```
 
 **Windows**
-Download the binary from [osmcode.org/osmium-tool](https://osmcode.org/osmium-tool/), extract it, and add the folder to your `PATH`.
+There is no official Windows installer. Install [Miniforge](https://conda-forge.org/download/), open **Miniforge Prompt**, and use the conda command below. Run TAREEK from the same prompt, so that `osmium` is on the `PATH`.
 
 **Conda (all platforms)**
 ```bash

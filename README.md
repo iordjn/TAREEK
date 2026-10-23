@@ -139,16 +139,99 @@ You can also add your own region. See [examples/CONTRIBUTING.md](examples/CONTRI
 
 ### 1. Prerequisites
 
-- Python 3.12+
-- Java 21+ (for MATSim)
-- `osmium-tool` (necessary for network generation; see [docs/osm-tools-installation.md](docs/osm-tools-installation.md))
+TAREEK needs three programs on your computer:
+
+| Program | Version | Used for |
+|---|---|---|
+| Python | 3.12 or later | Runs TAREEK |
+| Java | 21 or later | Runs the MATSim simulation |
+| `osmium-tool` | Any recent version | Makes the road network from OpenStreetMap |
+
+Use **one** of the two options below. On Windows, we recommend Option A.
+
+#### Option A: install all three with one command (easiest)
+
+1. Download and install [Miniforge](https://conda-forge.org/download/). Keep the default
+   settings.
+2. Open **Miniforge Prompt** (Windows: find it in the Start menu). On Linux/macOS, open a
+   terminal.
+3. Type this command and press Enter. When it asks `Proceed ([y]/n)?`, type `y`.
+
+   ```bash
+   conda create -n tareek -c conda-forge python=3.12 openjdk=21 osmium-tool
+   ```
+
+4. Activate the environment:
+
+   ```bash
+   conda activate tareek
+   ```
+
+Each time you open a new prompt to use TAREEK, do step 4 again.
+
+#### Option B: install each program separately
+
+<details>
+<summary>Python</summary>
+
+1. Download Python 3.12 or later from [python.org/downloads](https://www.python.org/downloads/).
+2. Run the installer. **Windows:** on the first screen, select **Add python.exe to PATH**,
+   then click **Install Now**.
+3. Open a new terminal and type `python --version` to check the installation.
+
+</details>
+
+<details>
+<summary>Java</summary>
+
+1. Download the **Temurin 21 (LTS)** installer from
+   [adoptium.net](https://adoptium.net/temurin/releases/?version=21) (`.msi` for Windows,
+   `.pkg` for macOS).
+2. Run the installer. On the **Custom Setup** screen, make sure that **Add to PATH** is on
+   (it is on by default). You do not have to edit the PATH by hand.
+3. Open a new terminal and type `java -version` to check the installation.
+
+Linux: `sudo apt-get install openjdk-21-jre-headless`
+
+</details>
+
+<details>
+<summary>osmium-tool</summary>
+
+- **Windows:** there is no installer for Windows. Use Option A.
+- **macOS:** `brew install osmium-tool`
+- **Linux (Ubuntu/Debian):** `sudo apt-get install osmium-tool`
+
+Type `osmium --version` to check the installation. For more information, see
+[docs/osm-tools-installation.md](docs/osm-tools-installation.md).
+
+</details>
+
+If a program is missing, TAREEK stops before it downloads data and tells you what to install.
 
 ### 2. Setup
+
+Get the code. If you do not have Git, click **Code → Download ZIP** on the
+[GitHub page](https://github.com/jalal1/TAREEK), extract the ZIP file, and open a terminal
+in the extracted folder.
 
 ```bash
 git clone https://github.com/jalal1/TAREEK.git
 cd TAREEK
+```
 
+Install the Python packages.
+
+**If you used Option A** (in the Miniforge Prompt):
+
+```bash
+conda activate tareek
+pip install -r requirements.txt
+```
+
+**If you used Option B:**
+
+```bash
 python -m venv .venv
 
 # Windows
@@ -159,6 +242,10 @@ source .venv/bin/activate
 
 pip install -r requirements.txt
 ```
+
+> **Windows PowerShell:** if `activate` gives the error "running scripts is disabled on
+> this system", run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once, or use
+> Command Prompt (`cmd`) instead.
 
 ### 3. Configure
 

@@ -20,14 +20,14 @@ _INSTALL_HINTS = {
     'osmium': {
         'linux': 'sudo apt-get install osmium-tool',
         'darwin': 'brew install osmium-tool',
-        'win32': 'Download from https://osmcode.org/osmium-tool/ and add it to PATH',
+        'win32': 'Install Miniforge, then run: conda install -c conda-forge osmium-tool',
         'any': 'conda install -c conda-forge osmium-tool',
         'docs': 'docs/osm-tools-installation.md',
     },
     'java': {
         'linux': 'sudo apt-get install openjdk-21-jre-headless',
         'darwin': 'brew install openjdk@21',
-        'win32': 'Install a JRE 17+ from https://adoptium.net/ and add it to PATH',
+        'win32': 'Install Temurin 21 from https://adoptium.net/ (keep "Add to PATH" on)',
         'any': 'conda install -c conda-forge openjdk=21',
         'docs': 'README.md (Prerequisites)',
     },
