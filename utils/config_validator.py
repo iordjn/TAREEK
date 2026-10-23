@@ -26,7 +26,7 @@ _INSTALL_HINTS = {
     },
     'java': {
         'linux': 'sudo apt-get install openjdk-21-jre-headless',
-        'darwin': 'brew install openjdk@21',
+        'darwin': 'brew install --cask temurin@21',
         'win32': 'Install Temurin 21 from https://adoptium.net/ (keep "Add to PATH" on)',
         'any': 'conda install -c conda-forge openjdk=21',
         'docs': 'README.md (Prerequisites)',

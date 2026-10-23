@@ -147,14 +147,24 @@ TAREEK needs three programs on your computer:
 | Java | 21 or later | Runs the MATSim simulation |
 | `osmium-tool` | Any recent version | Makes the road network from OpenStreetMap |
 
-Use **one** of the two options below. On Windows, we recommend Option A.
+Use **one** of the two options below. Option A works the same on Windows, macOS and Linux,
+and we recommend it.
 
 #### Option A: install all three with one command (easiest)
 
-1. Download and install [Miniforge](https://conda-forge.org/download/). Keep the default
-   settings.
-2. Open **Miniforge Prompt** (Windows: find it in the Start menu). On Linux/macOS, open a
-   terminal.
+1. Install [Miniforge](https://conda-forge.org/download/):
+   - **Windows:** download the `.exe` installer, run it, and keep the default settings.
+   - **macOS/Linux:** open a terminal and run:
+
+     ```bash
+     curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
+     bash Miniforge3-$(uname)-$(uname -m).sh
+     ```
+
+     Accept the license. When it asks to initialize conda, type `yes`. Then close the
+     terminal and open a new one.
+2. Open **Miniforge Prompt** (Windows: find it in the Start menu). On macOS/Linux, use the
+   new terminal.
 3. Type this command and press Enter. When it asks `Proceed ([y]/n)?`, type `y`.
 
    ```bash
@@ -177,7 +187,12 @@ Each time you open a new prompt to use TAREEK, do step 4 again.
 1. Download Python 3.12 or later from [python.org/downloads](https://www.python.org/downloads/).
 2. Run the installer. **Windows:** on the first screen, select **Add python.exe to PATH**,
    then click **Install Now**.
-3. Open a new terminal and type `python --version` to check the installation.
+3. Open a new terminal and type `python --version` (macOS/Linux: `python3 --version`) to
+   check the installation.
+
+**Linux:** your system Python can be too old (for example, Ubuntu 22.04 has 3.10). On
+Ubuntu 24.04 or later, run `sudo apt-get install python3 python3-venv`. On older systems,
+use Option A.
 
 </details>
 
@@ -187,11 +202,12 @@ Each time you open a new prompt to use TAREEK, do step 4 again.
 1. Download the **Temurin 21 (LTS)** installer from
    [adoptium.net](https://adoptium.net/temurin/releases/?version=21) (`.msi` for Windows,
    `.pkg` for macOS).
-2. Run the installer. On the **Custom Setup** screen, make sure that **Add to PATH** is on
-   (it is on by default). You do not have to edit the PATH by hand.
+2. Run the installer. **Windows:** on the **Custom Setup** screen, make sure that **Add to
+   PATH** is on (it is on by default). You do not have to edit the PATH by hand. **macOS:**
+   the installer sets up `java` for you.
 3. Open a new terminal and type `java -version` to check the installation.
 
-Linux: `sudo apt-get install openjdk-21-jre-headless`
+**Linux (Ubuntu/Debian):** `sudo apt-get install openjdk-21-jre-headless`
 
 </details>
 
@@ -199,8 +215,9 @@ Linux: `sudo apt-get install openjdk-21-jre-headless`
 <summary>osmium-tool</summary>
 
 - **Windows:** there is no installer for Windows. Use Option A.
-- **macOS:** `brew install osmium-tool`
+- **macOS:** `brew install osmium-tool` (this needs [Homebrew](https://brew.sh))
 - **Linux (Ubuntu/Debian):** `sudo apt-get install osmium-tool`
+- **Linux (Fedora):** `sudo dnf install osmium-tool`
 
 Type `osmium --version` to check the installation. For more information, see
 [docs/osm-tools-installation.md](docs/osm-tools-installation.md).
@@ -222,7 +239,7 @@ cd TAREEK
 
 Install the Python packages.
 
-**If you used Option A** (in the Miniforge Prompt):
+**If you used Option A** (in the Miniforge Prompt or the macOS/Linux terminal):
 
 ```bash
 conda activate tareek
@@ -232,12 +249,12 @@ pip install -r requirements.txt
 **If you used Option B:**
 
 ```bash
-python -m venv .venv
-
 # Windows
+python -m venv .venv
 .venv\Scripts\activate
 
 # Linux/macOS
+python3 -m venv .venv
 source .venv/bin/activate
 
 pip install -r requirements.txt
