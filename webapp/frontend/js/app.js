@@ -175,8 +175,9 @@ async function initMap() {
   });
 
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap contributors',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     maxZoom: 19,
+    className: 'basemap-muted',
   }).addTo(map);
 
   zoomMessageEl = document.getElementById('mapMessage');
