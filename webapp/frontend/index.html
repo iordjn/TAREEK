@@ -80,12 +80,45 @@
       <!-- Filled by JS -->
     </nav>
 
+    <div class="starting-config hidden" id="selectedStartingConfig">
+      <span>Starting configuration: <strong id="selectedPresetName"></strong></span>
+      <button class="btn btn--secondary" id="btnChangePreset" type="button">Change</button>
+    </div>
+
+    <section class="panel panel--active" id="panel-start" data-step="0" aria-labelledby="startingTitle">
+      <div class="panel__header">
+        <div class="panel__number">1</div>
+        <div>
+          <h1 class="panel__title" id="startingTitle" tabindex="-1">Choose a Starting Configuration</h1>
+          <p class="panel__description">Start with a regional experiment or customize the maintained baseline.</p>
+        </div>
+        <span class="panel__badge hidden" id="badge-start"></span>
+      </div>
+      <div class="panel__body">
+        <p class="text-sm text-muted mb-4">Choose an experiment, then adjust its region and settings. Advanced settings stay with your configuration.</p>
+        <fieldset class="preset-options">
+          <legend class="sr-only">Starting configuration</legend>
+          <div class="preset-grid" id="presetGrid"></div>
+        </fieldset>
+        <p id="presetError" class="text-sm preset-error" role="alert"></p>
+        <button type="button" class="btn btn--secondary hidden" id="btnRetryPresets">Retry presets</button>
+        <div id="presetWarnings" class="preset-warnings hidden">
+          <details><summary>Compatibility and portability notes</summary><ul id="presetWarningList"></ul></details>
+        </div>
+        <p class="text-sm text-muted mt-4" id="presetSelectionNote" role="status" aria-live="polite">Choose a starting configuration to continue.</p>
+      </div>
+      <div class="panel__footer">
+        <span class="text-sm text-muted">You can customize every wizard step next.</span>
+        <button class="btn btn--primary" id="btnNext0" type="button" disabled>Customize configuration →</button>
+      </div>
+    </section>
+
     <!-- ================================================================
        PANEL 1 — Region
        ================================================================ -->
-    <div class="panel panel--active" id="panel-region" data-step="0">
+    <div class="panel" id="panel-region" data-step="1">
       <div class="panel__header">
-        <div class="panel__number">1</div>
+        <div class="panel__number">2</div>
         <div>
           <div class="panel__title">Region</div>
           <div class="panel__description">Select the counties for your simulation area</div>
@@ -119,8 +152,8 @@
         <div class="selected-counties" id="selectedCountiesList"></div>
       </div>
       <div class="panel__footer">
-        <div></div>
-        <button class="btn btn--primary" id="btnNext0" disabled>
+        <button class="btn btn--secondary" id="btnBack1">Back</button>
+        <button class="btn btn--primary" id="btnNext1" disabled>
           Next: Surveys
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M5 12h14M12 5l7 7-7 7" />
@@ -132,9 +165,9 @@
     <!-- ================================================================
        PANEL 2 — Surveys
        ================================================================ -->
-    <div class="panel" id="panel-surveys" data-step="1">
+    <div class="panel" id="panel-surveys" data-step="2">
       <div class="panel__header">
-        <div class="panel__number">2</div>
+        <div class="panel__number">3</div>
         <div>
           <div class="panel__title">Travel Surveys</div>
           <div class="panel__description">Choose survey data sources for trip patterns</div>
@@ -142,8 +175,7 @@
         <span class="panel__badge hidden" id="badge-surveys"></span>
       </div>
       <div class="panel__body">
-        <p class="text-sm text-muted mb-4">At least one survey must be selected. NHTS is the national default and works
-          for any US region.</p>
+        <p class="text-sm text-muted mb-4">Survey weights and per-role settings from your experiment are preserved. A weight of zero can still supply person-days through its configured roles.</p>
 
         <!-- NHTS -->
         <div class="card card--selected" id="card-nhts">
@@ -185,7 +217,7 @@
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
               </span>
-              <span class="checkbox__label"><strong>Custom Survey</strong> — Upload your own travel survey data</span>
+              <span class="checkbox__label"><strong>Regional Survey</strong> — Use a local or regional survey</span>
             </label>
           </div>
           <div id="customSurveyOptions" class="hidden" style="margin-left: 28px; margin-top: 12px;">
@@ -194,6 +226,7 @@
                 <label class="form-label">Survey Type</label>
                 <select class="form-select" id="customSurveyType">
                   <option value="tbi">TBI (Travel Behavior Inventory)</option>
+                  <option value="bham_local">Birmingham local survey</option>
                   <option value="other">Other CSV format</option>
                 </select>
               </div>
@@ -202,13 +235,23 @@
                 <input type="text" class="form-input" id="customSurveyYear" placeholder="e.g. 2023" value="2023">
               </div>
             </div>
-            <div class="file-upload" id="surveyFileUpload">
-              <div class="file-upload__icon">📁</div>
-              <div class="file-upload__text">Click to upload survey CSV file</div>
-              <div class="file-upload__hint">Or drag and drop here</div>
+            <div class="form-group mt-4">
+              <label class="form-label" for="customSurveyFile">Trip file on the execution host</label>
+              <input type="text" class="form-input" id="customSurveyFile" placeholder="Path relative to data directory">
+              <span class="form-hint">Files remain on the execution host; this wizard edits their configured paths.</span>
             </div>
-            <input type="file" id="surveyFileInput" accept=".csv" class="hidden">
-            <div id="surveyFileName" class="text-sm mt-2 text-muted"></div>
+            <div class="form-group">
+              <label class="form-label" for="customSurveyPerson">Person file</label>
+              <input type="text" class="form-input" id="customSurveyPerson">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="customSurveyDay">Day file (TBI)</label>
+              <input type="text" class="form-input" id="customSurveyDay">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="customSurveyLinked">Linked trip file (TBI, optional)</label>
+              <input type="text" class="form-input" id="customSurveyLinked">
+            </div>
             <div class="form-group mt-4">
               <div class="form-label">Weight</div>
               <div class="slider-group" style="max-width: 300px;">
@@ -220,13 +263,13 @@
         </div>
       </div>
       <div class="panel__footer">
-        <button class="btn btn--secondary" id="btnBack1">
+        <button class="btn btn--secondary" id="btnBack2">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M19 12H5M12 19l-7-7 7-7" />
           </svg>
           Back
         </button>
-        <button class="btn btn--primary" id="btnNext1">
+        <button class="btn btn--primary" id="btnNext2">
           Next: Transportation Modes
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M5 12h14M12 5l7 7-7 7" />
@@ -238,9 +281,9 @@
     <!-- ================================================================
        PANEL 3 — Transportation Modes
        ================================================================ -->
-    <div class="panel" id="panel-modes" data-step="2">
+    <div class="panel" id="panel-modes" data-step="3">
       <div class="panel__header">
-        <div class="panel__number">3</div>
+        <div class="panel__number">4</div>
         <div>
           <div class="panel__title">Transportation Modes</div>
           <div class="panel__description">Configure available travel modes and their parameters</div>
@@ -471,13 +514,13 @@
         </div>
       </div>
       <div class="panel__footer">
-        <button class="btn btn--secondary" id="btnBack2">
+        <button class="btn btn--secondary" id="btnBack3">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M19 12H5M12 19l-7-7 7-7" />
           </svg>
           Back
         </button>
-        <button class="btn btn--primary" id="btnNext2">
+        <button class="btn btn--primary" id="btnNext3">
           Next: Transit
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M5 12h14M12 5l7 7-7 7" />
@@ -489,9 +532,9 @@
     <!-- ================================================================
        PANEL 4 — Transit (GTFS)
        ================================================================ -->
-    <div class="panel" id="panel-transit" data-step="3">
+    <div class="panel" id="panel-transit" data-step="4">
       <div class="panel__header">
-        <div class="panel__number">4</div>
+        <div class="panel__number">5</div>
         <div>
           <div class="panel__title">Transit Configuration</div>
           <div class="panel__description">GTFS feeds and transit network mapping settings</div>
@@ -549,10 +592,8 @@
                   busiest service day.</span>
               </span>
             </div>
-            <select class="form-select" id="gtfs-sample_day" style="max-width: 300px;">
-              <option value="dayWithMostTrips" selected>Day with most trips (auto)</option>
-              <option value="custom">Specific date...</option>
-            </select>
+            <input class="form-input" id="gtfs-sample_day" list="gtfsDayOptions" aria-label="GTFS sample day or date">
+            <datalist id="gtfsDayOptions"><option value="dayWithMostTrips"></option></datalist>
           </div>
 
           <!-- pt2matsim Advanced -->
@@ -624,13 +665,13 @@
         </div>
       </div>
       <div class="panel__footer">
-        <button class="btn btn--secondary" id="btnBack3">
+        <button class="btn btn--secondary" id="btnBack4">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M19 12H5M12 19l-7-7 7-7" />
           </svg>
           Back
         </button>
-        <button class="btn btn--primary" id="btnNext3">
+        <button class="btn btn--primary" id="btnNext4">
           Next: Travel Demand
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M5 12h14M12 5l7 7-7 7" />
@@ -642,9 +683,9 @@
     <!-- ================================================================
        PANEL 5 — Travel Demand
        ================================================================ -->
-    <div class="panel" id="panel-demand" data-step="4">
+    <div class="panel" id="panel-demand" data-step="5">
       <div class="panel__header">
-        <div class="panel__number">5</div>
+        <div class="panel__number">6</div>
         <div>
           <div class="panel__title">Travel Demand</div>
           <div class="panel__description">Scaling, work plans, and non-work trip purposes</div>
@@ -987,13 +1028,13 @@
         </div>
       </div>
       <div class="panel__footer">
-        <button class="btn btn--secondary" id="btnBack4">
+        <button class="btn btn--secondary" id="btnBack5">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M19 12H5M12 19l-7-7 7-7" />
           </svg>
           Back
         </button>
-        <button class="btn btn--primary" id="btnNext4">
+        <button class="btn btn--primary" id="btnNext5">
           Next: Time & Duration
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M5 12h14M12 5l7 7-7 7" />
@@ -1005,9 +1046,9 @@
     <!-- ================================================================
        PANEL 6 — Time & Duration Constraints
        ================================================================ -->
-    <div class="panel" id="panel-time" data-step="5">
+    <div class="panel" id="panel-time" data-step="6">
       <div class="panel__header">
-        <div class="panel__number">6</div>
+        <div class="panel__number">7</div>
         <div>
           <div class="panel__title">Time & Duration</div>
           <div class="panel__description">Activity duration constraints and time model settings</div>
@@ -1113,13 +1154,13 @@
         </div>
       </div>
       <div class="panel__footer">
-        <button class="btn btn--secondary" id="btnBack5">
+        <button class="btn btn--secondary" id="btnBack6">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M19 12H5M12 19l-7-7 7-7" />
           </svg>
           Back
         </button>
-        <button class="btn btn--primary" id="btnNext5">
+        <button class="btn btn--primary" id="btnNext6">
           Next: Simulation
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M5 12h14M12 5l7 7-7 7" />
@@ -1131,9 +1172,9 @@
     <!-- ================================================================
        PANEL 7 — Simulation
        ================================================================ -->
-    <div class="panel" id="panel-simulation" data-step="6">
+    <div class="panel" id="panel-simulation" data-step="7">
       <div class="panel__header">
-        <div class="panel__number">7</div>
+        <div class="panel__number">8</div>
         <div>
           <div class="panel__title">Simulation</div>
           <div class="panel__description">MATSim parameters, traffic counts, and evaluation settings</div>
@@ -1157,7 +1198,7 @@
                   better convergence but longer runtime. 50-200 typical.</span>
               </span>
             </div>
-            <input type="number" class="form-input" id="sim-iterations" value="100" min="10" max="1000" step="10">
+            <input type="number" class="form-input" id="sim-iterations" min="0" step="1">
           </div>
           <div class="form-group">
             <div class="form-label">
@@ -1290,34 +1331,64 @@
         </div>
       </div>
       <div class="panel__footer">
-        <button class="btn btn--secondary" id="btnBack6">
+        <button class="btn btn--secondary" id="btnBack7">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M19 12H5M12 19l-7-7 7-7" />
           </svg>
           Back
         </button>
-        <div style="display:flex;gap:12px;">
-          <button class="btn btn--success btn--lg" id="btnExport">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
-            Export Config
-          </button>
-          <button class="btn btn--primary btn--lg" id="btnStartSim" disabled>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polygon points="5 3 19 12 5 21 5 3" />
-            </svg>
-            Start Simulation
-          </button>
-        </div>
+        <button class="btn btn--primary" id="btnNext7">Next: Advanced configuration →</button>
       </div>
     </div>
+
+    <section class="panel" id="panel-advanced" data-step="8" aria-labelledby="advancedTitle">
+      <div class="panel__header">
+        <div class="panel__number">9</div>
+        <div><h2 class="panel__title" id="advancedTitle" tabindex="-1">Advanced Configuration</h2>
+          <p class="panel__description">Review every editable setting, including freight and advanced MATSim parameters.</p></div>
+        <span class="panel__badge hidden" id="badge-advanced"></span>
+      </div>
+      <div class="panel__body">
+        <p class="text-sm text-muted mb-4">Expand a section to edit its fields. Changes also appear in the wizard. Private credentials, metadata, and execution-only fields are preserved outside this editor.</p>
+        <div id="advancedEditor" class="advanced-editor"></div>
+      </div>
+      <div class="panel__footer">
+        <button class="btn btn--secondary" id="btnBack8">Back</button>
+        <button class="btn btn--primary" id="btnNext8">Next: Review &amp; Export →</button>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-review" data-step="9" aria-labelledby="reviewTitle">
+      <div class="panel__header">
+        <div class="panel__number">10</div>
+        <div><h2 class="panel__title" id="reviewTitle" tabindex="-1">Review &amp; Export</h2>
+          <p class="panel__description">Compare edits with your starting configuration and validate before downloading.</p></div>
+      </div>
+      <div class="panel__body">
+        <h3 class="section-title">Your changes</h3>
+        <div id="reviewChanges" class="review-changes"></div>
+        <h3 class="section-title mt-4">Automatic compatibility migrations</h3>
+        <ul id="reviewMigrations" class="review-list"></ul>
+        <div id="reviewAutomaticChanges" class="review-changes"></div>
+        <h3 class="section-title mt-4">Validation</h3>
+        <p id="reviewValidationStatus" class="text-sm" role="status" aria-live="polite">Validate this configuration before export.</p>
+        <ul id="reviewErrors" class="review-list preset-error" role="alert"></ul>
+        <button class="btn btn--secondary mt-4" id="btnValidateConfig" type="button">Validate configuration</button>
+        <h3 class="section-title mt-4">Portability and compatibility warnings</h3>
+        <ul id="reviewWarnings" class="review-list"></ul>
+        <details class="mt-4"><summary>Notes from the original experiment</summary><ul id="reviewSourceWarnings" class="review-list"></ul></details>
+      </div>
+      <div class="panel__footer">
+        <button class="btn btn--secondary" id="btnBack9">Back</button>
+        <button class="btn btn--success btn--lg" id="btnExport" disabled>Export config.json</button>
+      </div>
+    </section>
 
   </div><!-- /app-container -->
 
   <!-- App JS -->
+  <script src="js/config-state.js"></script>
+  <script src="js/advanced-editor.js"></script>
   <script src="js/app.js"></script>
 
 </body>

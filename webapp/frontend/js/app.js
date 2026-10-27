@@ -7,9 +7,19 @@
 // ==========================================================================
 // Constants
 // ==========================================================================
-const MAX_POPULATION = 5_000_000;
+const configuration = new ConfigurationState();
+let selectedPresetId = null;
+let presetRequest = 0;
+let presets = [];
+let baselineConfig = null;
+let advancedEditor = null;
+let sourceMigrations = [];
+let sourceWarnings = [];
+let reviewFingerprint = null;
+let reviewRequest = 0;
 
 const STEPS = [
+  { id: 'start', label: 'Start' },
   { id: 'region',     label: 'Region' },
   { id: 'surveys',    label: 'Surveys' },
   { id: 'modes',      label: 'Modes' },
@@ -17,17 +27,11 @@ const STEPS = [
   { id: 'demand',     label: 'Demand' },
   { id: 'time',       label: 'Time' },
   { id: 'simulation', label: 'Simulation' },
+  { id: 'advanced', label: 'Advanced' },
+  { id: 'review', label: 'Review' },
 ];
 
-const DURATION_DEFAULTS = {
-  Work:     { min: 10, max: 600, trim_priority: 1 },
-  School:   { min: 10, max: 600, trim_priority: 1 },
-  Shopping: { min: 5,  max: 300, trim_priority: 3 },
-  Escort:   { min: 5,  max: 300, trim_priority: 3 },
-  Dining:   { min: 5,  max: 180, trim_priority: 3 },
-  Social:   { min: 10, max: 300, trim_priority: 3 },
-  Other:    { min: 5,  max: 300, trim_priority: 3 },
-};
+const DURATION_ACTIVITIES = ['Work', 'School', 'Shopping', 'Escort', 'Dining', 'Social', 'Other'];
 
 // ==========================================================================
 // State
@@ -55,7 +59,11 @@ function renderStepProgress() {
       container.appendChild(sep);
     }
 
-    const item = document.createElement('div');
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.disabled = i > currentStep;
+    item.setAttribute('aria-label', `${i + 1}. ${step.label}`);
+    if (i === currentStep) item.setAttribute('aria-current', 'step');
     item.className = 'step-progress__item';
     if (i === currentStep) item.classList.add('step-progress__item--active');
     if (i < currentStep)  item.classList.add('step-progress__item--completed');
@@ -99,30 +107,39 @@ function goToStep(stepIndex) {
   activePanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   // Re-invalidate map size if returning to region step
-  if (currentStep === 0 && map) {
-    setTimeout(() => map.invalidateSize(), 100);
+  const heading = activePanel.querySelector('.panel__title');
+  heading.tabIndex = -1;
+  heading.focus({preventScroll: true});
+  if (STEPS[currentStep].id === 'region' && map) {
+    setTimeout(() => { map.invalidateSize(); fitSelectedRegion(); }, 100);
   }
+  if (STEPS[currentStep].id === 'advanced') advancedEditor.render();
+  if (STEPS[currentStep].id === 'review') { renderReview(); validateReview(); }
 }
 
 function validateStep(stepIndex) {
-  switch (stepIndex) {
-    case 0: // Region
+  const panel = document.getElementById(`panel-${STEPS[stepIndex].id}`);
+  for (const input of panel.querySelectorAll('input[data-edited], select[data-edited]')) {
+    if (!input.reportValidity()) return false;
+  }
+  switch (STEPS[stepIndex].id) {
+    case 'start':
+      return configuration.config !== null && !document.getElementById('btnNext0').disabled;
+    case 'region': // Region
       if (Object.keys(selectedCounties).length === 0) {
         alert('Please select at least one county.');
-        return false;
-      }
-      const totalPop = getTotalPopulation();
-      if (totalPop > MAX_POPULATION) {
-        alert(`Total population (${formatNumber(totalPop)}) exceeds the maximum of ${formatNumber(MAX_POPULATION)}. Please remove some counties.`);
         return false;
       }
       updateBadge('region', `${Object.keys(selectedCounties).length} counties`);
       return true;
 
-    case 1: // Surveys
+    case 'surveys': // Surveys
       const nhts = document.getElementById('chkNhts').checked;
       const custom = document.getElementById('chkCustomSurvey').checked;
-      if (!nhts && !custom) {
+      const surveys = configuration.config?.data?.surveys;
+      const active = Array.isArray(surveys) && surveys.some(s => s && typeof s === 'object' &&
+        ((s.weight ?? 1) > 0 || Object.values(s.roles || {}).some(weight => weight > 0)));
+      if (!active) {
         alert('At least one survey must be selected.');
         return false;
       }
@@ -186,7 +203,10 @@ async function initMap() {
   try {
     const resp = await fetch('/api/counties');
     countyGeoJSON = await resp.json();
+    if (!resp.ok) throw new Error('County data unavailable');
     addCountyLayer();
+    syncSelectedRegion();
+    updatePresetCountyNames();
   } catch (err) {
     console.error('Failed to load counties:', err);
     zoomMessageEl.textContent = 'Failed to load county data. Is the server running?';
@@ -258,12 +278,6 @@ function toggleCounty(geoid, name, population, feature, layer) {
     delete selectedCounties[geoid];
     countyLayer.resetStyle(layer);
   } else {
-    // Check population cap
-    const newTotal = getTotalPopulation() + (population || 0);
-    if (newTotal > MAX_POPULATION) {
-      alert(`Adding "${name}" (pop: ${formatNumber(population)}) would exceed the ${formatNumber(MAX_POPULATION)} limit.\nCurrent total: ${formatNumber(getTotalPopulation())}`);
-      return;
-    }
     selectedCounties[geoid] = { name, population, feature };
     layer.setStyle({
       fillColor: '#2563eb',
@@ -275,7 +289,7 @@ function toggleCounty(geoid, name, population, feature, layer) {
 
   updateMapStats();
   updateSelectedCountiesList();
-  updateNextButton0();
+  updateRegionSelection();
 }
 
 function getTotalPopulation() {
@@ -290,8 +304,7 @@ function updateMapStats() {
   const popEl = document.getElementById('statPopulation');
   popEl.textContent = formatNumber(pop);
   popEl.className = 'map-overlay__value';
-  if (pop > MAX_POPULATION * 0.9) popEl.classList.add('map-overlay__value--warning');
-  if (pop > MAX_POPULATION) popEl.classList.add('map-overlay__value--danger');
+
 }
 
 function updateSelectedCountiesList() {
@@ -301,11 +314,14 @@ function updateSelectedCountiesList() {
   Object.entries(selectedCounties).forEach(([geoid, data]) => {
     const tag = document.createElement('span');
     tag.className = 'tag tag--primary';
-    tag.innerHTML = `
-      ${data.name}
-      <span class="text-xs text-muted">(${formatNumber(data.population)})</span>
-      <span class="tag__remove" onclick="removeCounty('${geoid}')">&times;</span>
-    `;
+    tag.append(document.createTextNode(`${data.name} (${formatNumber(data.population)}) `));
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'tag__remove';
+    remove.textContent = '×';
+    remove.setAttribute('aria-label', `Remove ${data.name}`);
+    remove.onclick = () => removeCounty(geoid);
+    tag.appendChild(remove);
     container.appendChild(tag);
   });
 }
@@ -322,14 +338,35 @@ function removeCounty(geoid) {
   }
   updateMapStats();
   updateSelectedCountiesList();
-  updateNextButton0();
+  updateRegionSelection();
 }
 
-function updateNextButton0() {
-  const btn = document.getElementById('btnNext0');
-  const count = Object.keys(selectedCounties).length;
-  const pop = getTotalPopulation();
-  btn.disabled = count === 0 || pop > MAX_POPULATION;
+function updateRegionSelection() {
+  document.getElementById('btnNext1').disabled = Object.keys(selectedCounties).length === 0;
+  if (configuration.config) configuration.set(['region', 'counties'], Object.keys(selectedCounties));
+}
+
+function syncSelectedRegion() {
+  const value = configuration.get(['region', 'counties']);
+  const counties = Array.isArray(value) ? value : [];
+  selectedCounties = {};
+  for (const geoid of counties) {
+    const feature = countyGeoJSON?.features.find(f => f.properties.GEOID === geoid);
+    selectedCounties[geoid] = {name: feature?.properties.name || geoid,
+      population: feature?.properties.population || 0, feature};
+  }
+  if (countyLayer) countyLayer.setStyle(countyStyle);
+  updateMapStats();
+  updateSelectedCountiesList();
+  // Hydration must not rewrite array order or add configuration fields.
+  document.getElementById('btnNext1').disabled = counties.length === 0;
+}
+
+function fitSelectedRegion() {
+  if (!countyLayer || !map) return;
+  const layers = [];
+  countyLayer.eachLayer(layer => { if (selectedCounties[layer.feature.properties.GEOID]) layers.push(layer); });
+  if (layers.length) map.fitBounds(L.featureGroup(layers).getBounds(), {padding: [20, 20], maxZoom: 9});
 }
 
 // ==========================================================================
@@ -352,16 +389,7 @@ function setupSurveys() {
     customOptions.classList.toggle('hidden', !chkCustom.checked);
   });
 
-  // File upload
-  const fileUpload = document.getElementById('surveyFileUpload');
-  const fileInput = document.getElementById('surveyFileInput');
-  fileUpload.onclick = () => fileInput.click();
-  fileInput.onchange = () => {
-    const file = fileInput.files[0];
-    if (file) {
-      document.getElementById('surveyFileName').textContent = `Selected: ${file.name}`;
-    }
-  };
+
 }
 
 // ==========================================================================
@@ -403,6 +431,7 @@ function setupDemand() {
   const customInput = document.getElementById('demand-target_plans_custom');
   targetSelect.addEventListener('change', () => {
     customInput.classList.toggle('hidden', targetSelect.value !== 'custom');
+    customInput.disabled = targetSelect.value !== 'custom';
   });
 }
 
@@ -414,24 +443,24 @@ function buildDurationTable() {
   const tbody = document.getElementById('durationTable');
   tbody.innerHTML = '';
 
-  Object.entries(DURATION_DEFAULTS).forEach(([activity, defaults]) => {
+  DURATION_ACTIVITIES.forEach(activity => {
     const row = document.createElement('tr');
     row.style.borderBottom = '1px solid var(--color-gray-200)';
     row.innerHTML = `
       <td style="padding:8px 12px;font-weight:500;">${activity}</td>
       <td style="padding:8px 12px;">
         <input type="number" class="form-input" id="dur-${activity}-min"
-               value="${defaults.min}" min="1" max="1440" style="width:80px;">
+               min="1" max="1440" style="width:80px;">
       </td>
       <td style="padding:8px 12px;">
         <input type="number" class="form-input" id="dur-${activity}-max"
-               value="${defaults.max}" min="1" max="1440" style="width:80px;">
+               min="1" max="1440" style="width:80px;">
       </td>
       <td style="padding:8px 12px;">
         <select class="form-select" id="dur-${activity}-priority" style="width:120px;">
-          <option value="1" ${defaults.trim_priority === 1 ? 'selected' : ''}>1 — Mandatory</option>
-          <option value="2" ${defaults.trim_priority === 2 ? 'selected' : ''}>2 — Default</option>
-          <option value="3" ${defaults.trim_priority === 3 ? 'selected' : ''}>3 — Discretionary</option>
+          <option value="1" >1 — Mandatory</option>
+          <option value="2" >2 — Default</option>
+          <option value="3" >3 — Discretionary</option>
         </select>
       </td>
     `;
@@ -482,17 +511,16 @@ function setupSliders() {
     const display = document.getElementById(displayId);
     if (input && display) {
       const update = () => {
-        display.textContent = parseFloat(input.value).toFixed(
-          input.step && input.step.includes('.') ? input.step.split('.')[1].length : 1
-        );
+        display.textContent = input.value === '' ? 'Not set' : String(Number(input.value));
         // Special: update scaling hint
         if (inputId === 'demand-scaling_factor') {
           const pct = (parseFloat(input.value) * 100).toFixed(1);
-          document.getElementById('demand-scaling_hint').textContent =
-            `Simulating ~${pct}% of the population`;
+          document.getElementById('demand-scaling_hint').textContent = input.value === '' ?
+            'Scaling factor is not set.' : `Simulating ~${pct}% of the population`;
         }
       };
       input.addEventListener('input', update);
+      input.addEventListener('config-populate', update);
       update(); // init
     }
   });
@@ -594,262 +622,420 @@ function togglePurposeCard(purpose) {
 // ==========================================================================
 
 function collectFormData() {
-  const val = (id, fallback) => {
+  if (!configuration.config) throw new Error('Choose a starting configuration first.');
+  return configuration.snapshot();
+}
+
+// Populate controls without dispatching edit events. Only user events write state.
+function populateControl(el, value) {
+  if (!el) return;
+  delete el.dataset.edited;
+  if (el.type === 'checkbox') {
+    el.checked = value === true;
+    el.indeterminate = value == null;
+  } else {
+    if (el.tagName === 'SELECT' && !Array.from(el.options).some(o => o.value === String(value ?? ''))) {
+      const option = document.createElement('option');
+      option.value = String(value ?? '');
+      option.textContent = value == null ? 'Not set' : String(value);
+      el.appendChild(option);
+    }
+    if (el.type === 'range') {
+      el.step = 'any';
+      if (value == null) el.type = 'number';
+      else {
+        el.min = Math.min(Number(el.min), Number(value));
+        el.max = Math.max(Number(el.max), Number(value));
+      }
+    }
+    el.value = value ?? '';
+    el.placeholder = value == null ? 'Not set (engine default)' : el.placeholder;
+  }
+  el.title = value === undefined ? 'Not configured; preserved until edited.' : '';
+  el.dispatchEvent(new Event('config-populate'));
+}
+
+function inputValue(el) {
+  if (el.type === 'checkbox') return el.checked;
+  if (el.type === 'range' || el.type === 'number' || el.id === 'counts-fha_month' || /-priority$/.test(el.id)) {
+    return el.value === '' ? null : Number(el.value);
+  }
+  if (el.id === 'mode-car-survey_rate' && el.value !== 'auto') return el.value === '' ? null : Number(el.value);
+  return el.value;
+}
+
+function refreshControlAppearance() {
+  for (const mode of ['car', 'bus', 'rail', 'walk', 'bike']) {
+    const enabled = document.getElementById(`modeEnable-${mode}`).checked;
+    document.getElementById(`modeCard-${mode}`).classList.toggle('mode-card--enabled', enabled);
+    document.getElementById(`modeCard-${mode}`).classList.toggle('mode-card--disabled', !enabled);
+  }
+  for (const purpose of ['shopping', 'school', 'social', 'dining', 'other']) {
+    document.getElementById(`purposeCard-${purpose}`).classList.toggle('purpose-card--enabled',
+      document.getElementById(`purpose-${purpose}-enabled`).checked);
+  }
+  for (const [control, content] of [['transit-enabled', 'transitSettings'], ['counts-enabled', 'countsSettings'], ['eval-run', 'evalSettings']]) {
+    document.getElementById(content).style.display = document.getElementById(control).checked ? 'block' : 'none';
+  }
+  document.getElementById('demand-target_plans_custom').classList.toggle('hidden',
+    document.getElementById('demand-target_plans').value !== 'custom');
+  document.getElementById('demand-target_plans_custom').disabled =
+    document.getElementById('demand-target_plans').value !== 'custom';
+}
+
+const SURVEY_BINDINGS = {
+  customSurveyType: 'type', customSurveyYear: 'year', customSurveyWeight: 'weight',
+  customSurveyFile: 'file', customSurveyPerson: 'person_file', customSurveyDay: 'day_file',
+  customSurveyLinked: 'linked_trip_file',
+};
+
+function populateSurveys() {
+  for (const [custom, checkbox, card] of [[false, 'chkNhts', 'card-nhts'], [true, 'chkCustomSurvey', 'card-custom-survey']]) {
+    const entry = configuration.survey(custom);
+    document.getElementById(checkbox).checked = !!entry;
+    document.getElementById(card).classList.toggle('card--selected', !!entry);
+  }
+  const regional = configuration.survey(true);
+  for (const [id, key] of Object.entries(SURVEY_BINDINGS)) populateControl(document.getElementById(id), regional?.[key]);
+  populateControl(document.getElementById('nhtsWeight'), configuration.survey(false)?.weight);
+  document.getElementById('customSurveyOptions').classList.toggle('hidden', !regional);
+  document.getElementById('nhtsWeight').disabled = !configuration.survey(false);
+}
+
+function populateConfiguration() {
+  for (const [id, path] of Object.entries(CONFIG_BINDINGS)) populateControl(document.getElementById(id), configuration.get(path));
+  const target = configuration.get(['plan_generation', 'target_plans']);
+  populateControl(document.getElementById('demand-target_plans'), target === 'all' ? 'all' : 'custom');
+  populateControl(document.getElementById('demand-target_plans_custom'), target === 'all' ? undefined : target);
+  document.getElementById('demand-target_plans_custom').required = target !== 'all';
+  populateSurveys();
+  refreshControlAppearance();
+  syncSelectedRegion();
+}
+
+function setupConfigurationBindings() {
+  for (const [id, path] of Object.entries(CONFIG_BINDINGS)) {
     const el = document.getElementById(id);
-    if (!el) return fallback;
-    if (el.type === 'checkbox') return el.checked;
-    if (el.type === 'number' || el.type === 'range') return parseFloat(el.value);
-    return el.value;
-  };
-
-  const counties = Object.keys(selectedCounties);
-
-  // Surveys
-  const surveys = [];
-  if (document.getElementById('chkNhts').checked) {
-    surveys.push({
-      type: 'nhts',
-      year: '2022',
-      file: 'nhts/csv/tripv2pub.csv',
-      weight: val('nhtsWeight', 1),
+    if (!el) continue;
+    const update = () => {
+      el.dataset.edited = 'true';
+      if (!configuration.config || (el.validity && !el.validity.valid)) return;
+      configuration.set(path, inputValue(el));
+      refreshControlAppearance();
+    };
+    el.addEventListener('input', update);
+    el.addEventListener('change', update);
+  }
+  for (const [id, custom] of [['chkNhts', false], ['chkCustomSurvey', true]]) {
+    document.getElementById(id).addEventListener('change', event => {
+      configuration.includeSurvey(custom, event.target.checked);
+      populateSurveys();
     });
   }
-  if (document.getElementById('chkCustomSurvey').checked) {
-    surveys.push({
-      type: val('customSurveyType', 'tbi'),
-      year: val('customSurveyYear', '2023'),
-      file: '',  // will be set by server
-      weight: val('customSurveyWeight', 0.5),
+  for (const [id, key] of Object.entries(SURVEY_BINDINGS)) {
+    document.getElementById(id).addEventListener('input', event => {
+      event.target.dataset.edited = 'true';
+      if (!event.target.validity.valid) return;
+      const index = configuration.surveyIndex(true);
+      if (index >= 0) configuration.set(['data', 'surveys', index, key], inputValue(event.target));
     });
   }
+  document.getElementById('nhtsWeight').addEventListener('input', event => {
+    const index = configuration.surveyIndex(false);
+    if (index >= 0) configuration.set(['data', 'surveys', index, 'weight'], inputValue(event.target));
+  });
+  document.getElementById('demand-target_plans').addEventListener('change', event => {
+    if (event.target.value === 'all') configuration.set(['plan_generation', 'target_plans'], 'all');
+    else {
+      const custom = document.getElementById('demand-target_plans_custom');
+      custom.required = true;
+      custom.dataset.edited = 'true';
+      if (custom.value && custom.validity.valid) configuration.set(['plan_generation', 'target_plans'], Number(custom.value));
+      custom.focus();
+    }
+    if (event.target.value === 'all') document.getElementById('demand-target_plans_custom').required = false;
+  });
+  document.getElementById('demand-target_plans_custom').addEventListener('input', event => {
+    if (event.target.validity.valid && event.target.value) configuration.set(['plan_generation', 'target_plans'], Number(event.target.value));
+  });
+  // Existing form markup uses visual labels; give every editing control a name.
+  document.querySelectorAll('.panel input, .panel select').forEach(el => {
+    if (!el.labels?.length && !el.hasAttribute('aria-label')) {
+      const label = el.closest('.form-group')?.querySelector('.form-label');
+      el.setAttribute('aria-label', label?.childNodes[0]?.textContent.trim() || el.id.replaceAll('-', ' '));
+    }
+  });
+}
 
-  // Modes
-  const modes = {
-    car: {
-      enabled: val('modeEnable-car', true),
-      matsim_mode: 'car',
-      availability: 'universal',
-      survey_rate: 'auto',
-      config_rate: null,
-      blend_weight: 0,
-      share_adjustment: val('mode-car-share_adj', 0),
-    },
-    bus: {
-      enabled: val('modeEnable-bus', true),
-      matsim_mode: 'pt',
-      availability: {
-        type: 'gtfs',
-        route_types: [3, 11],
-        access_buffer_meters: val('mode-bus-access_buffer', 900),
-      },
-      survey_rate: 'auto',
-      config_rate: val('mode-bus-config_rate', 0.09),
-      blend_weight: val('mode-bus-blend_weight', 0.7),
-      share_adjustment: 0,
-    },
-    rail: {
-      enabled: val('modeEnable-rail', true),
-      matsim_mode: 'pt',
-      availability: {
-        type: 'gtfs',
-        route_types: [0, 1, 2, 12],
-        access_buffer_meters: val('mode-rail-access_buffer', 1500),
-      },
-      survey_rate: 'auto',
-      config_rate: val('mode-rail-config_rate', 0.06),
-      blend_weight: val('mode-rail-blend_weight', 0.7),
-      share_adjustment: 0,
-    },
-    walk: {
-      enabled: val('modeEnable-walk', true),
-      matsim_mode: 'walk',
-      availability: {
-        type: 'distance',
-        max_distance_meters: val('mode-walk-max_distance', 2000),
-      },
-      survey_rate: 'auto',
-      config_rate: null,
-      blend_weight: 0,
-      share_adjustment: 0,
-    },
-    bike: {
-      enabled: val('modeEnable-bike', true),
-      matsim_mode: 'bike',
-      availability: {
-        type: 'distance',
-        max_distance_meters: val('mode-bike-max_distance', 8000),
-      },
-      survey_rate: 'auto',
-      config_rate: null,
-      blend_weight: 0,
-      share_adjustment: 0,
-    },
-  };
+async function fetchJSON(url) {
+  const response = await fetch(url);
+  const body = await response.json();
+  if (!response.ok) throw new Error(typeof body.detail === 'string' ? body.detail : 'Unable to retrieve configuration.');
+  return body;
+}
 
-  // Target plans
-  let targetPlans = val('demand-target_plans', 'all');
-  if (targetPlans === 'custom') {
-    targetPlans = val('demand-target_plans_custom', 1000);
+function renderPresetCards() {
+  const grid = document.getElementById('presetGrid');
+  grid.replaceChildren();
+  const options = [{id: 'custom', display_name: 'Custom Configuration', region: 'Your region',
+    description: 'Start with the maintained baseline and customize your experiment.',
+    characteristics: baselineConfig ? {
+      counties: baselineConfig.region?.counties || [], scaling_factor: baselineConfig.plan_generation?.scaling_factor,
+      surveys: baselineConfig.data?.surveys || [],
+    } : {}}, ...presets];
+  for (const preset of options) {
+    const label = document.createElement('label');
+    label.className = 'card preset-card';
+    const radio = document.createElement('input');
+    radio.type = 'radio'; radio.name = 'startingPreset'; radio.value = preset.id;
+    radio.checked = preset.id === selectedPresetId;
+    radio.disabled = preset.id === 'custom' && !baselineConfig;
+    radio.addEventListener('change', () => selectPreset(preset));
+    label.classList.toggle('card--selected', radio.checked);
+    label.appendChild(radio);
+    const content = document.createElement('div');
+    const region = document.createElement('span');
+    region.className = 'preset-card__region'; region.textContent = preset.region;
+    const title = document.createElement('strong');
+    title.className = 'card__title'; title.textContent = preset.display_name;
+    const description = document.createElement('p');
+    description.className = 'text-sm text-muted'; description.textContent = preset.description;
+    const characteristics = preset.characteristics;
+    const stats = document.createElement('p'); stats.className = 'preset-card__stats';
+    const sources = (characteristics.surveys || []).filter(s => (s.weight ?? 1) > 0 || Object.values(s.roles || {}).some(w => w > 0));
+    stats.textContent = `${characteristics.scaling_factor == null ? '—' : `${Number((characteristics.scaling_factor * 100).toFixed(2))}%`} population · ${sources.map(s => s.type.toUpperCase()).join(' + ') || 'Choose survey'}`;
+    const counties = document.createElement('p'); counties.className = 'text-xs text-muted preset-card__counties';
+    counties.dataset.counties = JSON.stringify(characteristics.counties || []);
+    content.append(region, title, description, stats, counties);
+    label.appendChild(content); grid.appendChild(label);
   }
+  updatePresetCountyNames();
+}
 
-  // Duration constraints
-  const activityDurations = {};
-  Object.keys(DURATION_DEFAULTS).forEach(activity => {
-    activityDurations[activity] = {
-      min_minutes: val(`dur-${activity}-min`, DURATION_DEFAULTS[activity].min),
-      max_minutes: val(`dur-${activity}-max`, DURATION_DEFAULTS[activity].max),
-      trim_priority: parseInt(document.getElementById(`dur-${activity}-priority`)?.value || DURATION_DEFAULTS[activity].trim_priority),
-      blend_weight: 0,
-    };
+function updatePresetCountyNames() {
+  document.querySelectorAll('[data-counties]').forEach(el => {
+    const ids = JSON.parse(el.dataset.counties);
+    const names = ids.map(id => countyGeoJSON?.features.find(f => f.properties.GEOID === id)?.properties.name || id);
+    el.textContent = `${ids.length} ${ids.length === 1 ? 'county' : 'counties'}: ${names.join(', ')}`;
   });
+}
 
-  // Non-work purposes
-  const purposes = ['Shopping', 'School', 'Social', 'Dining', 'Other'];
-  const purposeKeyMap = {
-    Shopping: 'shopping',
-    School: 'school',
-    Social: 'social',
-    Dining: 'dining',
-    Other: 'other',
-  };
+let selectedSnapshot = null;
+async function selectPreset(preset) {
+  if (selectedPresetId === preset.id) {
+    ++presetRequest; // Also cancel a different pending selection.
+    document.getElementById('btnNext0').disabled = false;
+    document.querySelectorAll('input[name="startingPreset"]').forEach(radio => {
+      radio.checked = radio.value === selectedPresetId;
+      radio.closest('.preset-card').classList.toggle('card--selected', radio.checked);
+    });
+    return; // Returning to Start retains edits.
+  }
+  if (selectedSnapshot && JSON.stringify(configuration.config) !== selectedSnapshot &&
+      !window.confirm('Changing the starting configuration replaces your current edits. Continue?')) {
+    renderPresetCards(); return;
+  }
+  const requestId = ++presetRequest;
+  document.getElementById('btnNext0').disabled = true;
+  document.getElementById('presetError').textContent = '';
+  try {
+    const response = preset.id === 'custom' ? {config: baselineConfig, warnings: []} :
+      await fetchJSON(`/api/config/presets/${encodeURIComponent(preset.id)}`);
+    if (requestId !== presetRequest) return;
+    if (!response.config) throw new Error('Starting configuration is unavailable. Retry presets.');
+    configuration.load(response.config);
+    sourceMigrations = response.migrations || [];
+    sourceWarnings = response.warnings || [];
+    // Templates are used only when a user explicitly adds an absent source.
+    for (const custom of [false, true]) {
+      const template = baselineConfig?.data?.surveys.find(s => custom ? s.type !== 'nhts' : s.type === 'nhts');
+      if (template) configuration.surveyCache[custom] = structuredClone(template);
+    }
+    selectedPresetId = preset.id;
+    selectedSnapshot = JSON.stringify(configuration.config);
+    document.body.classList.add('configuration-selected');
+    populateConfiguration();
+    document.querySelectorAll('.panel__badge').forEach(el => el.classList.add('hidden'));
+    updateBadge('start', preset.display_name);
+    document.getElementById('selectedPresetName').textContent = preset.display_name;
+    document.getElementById('selectedStartingConfig').classList.remove('hidden');
+    document.getElementById('presetSelectionNote').textContent = `Selected: ${preset.display_name}. Ready to customize.`;
+    const warnings = document.getElementById('presetWarningList'); warnings.replaceChildren();
+    for (const warning of response.warnings || []) {
+      const li = document.createElement('li'); li.textContent = warning.message; warnings.appendChild(li);
+    }
+    document.getElementById('presetWarnings').classList.toggle('hidden', !warnings.children.length);
+  } catch (error) {
+    if (requestId !== presetRequest) return;
+    document.getElementById('presetError').textContent = `Could not select configuration: ${error.message}`;
+  } finally {
+    if (requestId === presetRequest) {
+      document.getElementById('btnNext0').disabled = !configuration.config;
+      // Keep focus on the radio after selection, including keyboard navigation.
+      document.querySelectorAll('input[name="startingPreset"]').forEach(radio => {
+        radio.checked = radio.value === selectedPresetId;
+        radio.closest('.preset-card').classList.toggle('card--selected', radio.checked);
+      });
+    }
+  }
+}
 
-  const nonworkPurposes = {
-    nonwork_trip_share: val('nonwork-trip_share', 1.0),
-  };
+async function setupPresetSelection() {
+  document.getElementById('btnChangePreset').onclick = () => goToStep(0);
+  document.getElementById('btnRetryPresets').onclick = setupPresetSelection;
+  const responses = await Promise.allSettled([fetchJSON('/api/config/presets'), fetchJSON('/api/defaults')]);
+  if (responses[0].status === 'fulfilled') presets = responses[0].value.presets;
+  if (responses[1].status === 'fulfilled') baselineConfig = responses[1].value;
+  const failed = responses.some(result => result.status === 'rejected');
+  document.getElementById('presetError').textContent = failed ? 'Some starting configurations are unavailable. Retry to retrieve them.' : '';
+  document.getElementById('btnRetryPresets').classList.toggle('hidden', !failed);
+  renderPresetCards();
+}
 
-  purposes.forEach(purpose => {
-    const key = purposeKeyMap[purpose];
-    nonworkPurposes[purpose] = {
-      enabled: val(`purpose-${key}-enabled`, true),
-      trip_generation: {
-        survey_rate: 'auto',
-        config_rate: val(`purpose-${key}-config_rate`, 0.2),
-        blend_weight: val(`purpose-${key}-blend_weight`, 0.7),
-      },
-      od_matrix: {
-        beta: val(`purpose-${key}-od_beta`, 2.0),
-        alpha: 0.1,
-      },
-      poi_weighting: {
-        enabled: true,
-      },
-    };
+function fillReviewList(id, messages) {
+  const list = document.getElementById(id); list.replaceChildren();
+  for (const message of messages) {
+    const item = document.createElement('li'); item.textContent = message; list.appendChild(item);
+  }
+}
+
+function renderChangeList(id, changes) {
+  const container = document.getElementById(id); container.replaceChildren();
+  if (!changes.length) { container.textContent = 'No changes.'; return; }
+  for (const change of changes) {
+    const item = document.createElement('details');
+    const title = document.createElement('summary'); title.textContent = configPointer(change.path);
+    item.appendChild(title);
+    for (const [label, value] of [['Before', change.before], ['After', change.after]]) {
+      const heading = document.createElement('strong'); heading.textContent = label;
+      const pre = document.createElement('pre'); pre.textContent = safeReviewValue(value);
+      item.append(heading, pre);
+    }
+    container.appendChild(item);
+  }
+}
+
+function renderReview() {
+  renderChangeList('reviewChanges', configDifferences(configuration.original, configuration.config));
+  fillReviewList('reviewMigrations', sourceMigrations.length ? sourceMigrations.map(name => `Applied when loading: ${name}`) : ['No migrations were required when loading.']);
+  fillReviewList('reviewSourceWarnings', sourceWarnings.map(warning => warning.message));
+}
+
+function draftValidationErrors() {
+  const errors = advancedEditor?.errorsList() || [];
+  for (const input of document.querySelectorAll('input[data-edited], select[data-edited]')) {
+    if (!input.disabled && !input.validity.valid) errors.push(`${input.getAttribute('aria-label') || input.id}: ${input.validationMessage}`);
+  }
+  // Check supplied metadata for changed values, without rejecting unmodified
+  // historical values that a newer metadata revision might not understand.
+  for (const [pointer, metadata] of Object.entries(CONFIG_METADATA)) {
+    const path = pointer.slice(1).split('/').map(key => key.replaceAll('~1', '/').replaceAll('~0', '~'));
+    const value = configuration.get(path);
+    const original = path.reduce((obj, key) => obj?.[key], configuration.original);
+    if (JSON.stringify(value) === JSON.stringify(original)) continue;
+    if (value === undefined && !metadata.required) continue;
+    if (metadata.enum && !metadata.enum.includes(value)) errors.push(`${pointer}: choose one of ${metadata.enum.join(', ')}.`);
+    if (metadata.types && !metadata.types.includes(configType(value))) errors.push(`${pointer}: expected ${metadata.types.join(' or ')}.`);
+    if (typeof value === 'number' && ((metadata.integer && !Number.isInteger(value)) ||
+        (metadata.minimum !== undefined && value < metadata.minimum) ||
+        (metadata.maximum !== undefined && value > metadata.maximum) ||
+        (metadata.exclusiveMinimum !== undefined && value <= metadata.exclusiveMinimum))) errors.push(`${pointer}: number is outside the allowed range.`);
+  }
+  return [...new Set(errors)];
+}
+
+function invalidateReview() {
+  reviewFingerprint = null;
+  ++reviewRequest;
+  document.getElementById('btnExport').disabled = true;
+  document.getElementById('reviewValidationStatus').textContent = 'Configuration changed. Validate before exporting.';
+}
+
+async function validateReview() {
+  const request = ++reviewRequest;
+  reviewFingerprint = null;
+  document.getElementById('btnExport').disabled = true;
+  renderReview();
+  const errors = draftValidationErrors();
+  fillReviewList('reviewErrors', errors);
+  fillReviewList('reviewWarnings', []);
+  renderChangeList('reviewAutomaticChanges', []);
+  if (errors.length) {
+    document.getElementById('reviewValidationStatus').textContent = 'Fix the listed editing errors before export.';
+    return false;
+  }
+  const snapshot = configuration.snapshot(), fingerprint = JSON.stringify(snapshot);
+  try {
+    const response = await fetch('/api/config/prepare', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({config: snapshot}),
+    });
+    const result = await response.json();
+    if (request !== reviewRequest || fingerprint !== JSON.stringify(configuration.config)) return false;
+    if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : 'Configuration validation failed.');
+    fillReviewList('reviewWarnings', (result.issues || []).map(issue => `${issue.path ? issue.path + ': ' : ''}${issue.message}`));
+    const migrations = [...sourceMigrations.map(name => `Applied when loading: ${name}`),
+      ...(result.migrations || []).map(name => `Will apply on export: ${name}`)];
+    fillReviewList('reviewMigrations', migrations.length ? migrations : ['No compatibility migrations.']);
+    renderChangeList('reviewAutomaticChanges', configDifferences(snapshot, result.config));
+    document.getElementById('reviewValidationStatus').textContent = 'Structural validation passed. Review warnings; data files and machine readiness have not been checked.';
+    reviewFingerprint = fingerprint;
+    document.getElementById('btnExport').disabled = false;
+    return true;
+  } catch (error) {
+    if (request !== reviewRequest) return false;
+    fillReviewList('reviewErrors', [error.message]);
+    document.getElementById('reviewValidationStatus').textContent = 'Validation did not pass. Fix the configuration or retry.';
+    return false;
+  }
+}
+
+function setupAdvancedAndReview() {
+  advancedEditor = new AdvancedConfigEditor(configuration, document.getElementById('advancedEditor'), {}, () => baselineConfig);
+  const overlaps = (left, right) => left.slice(0, Math.min(left.length, right.length)).every((key, index) => key === right[index]);
+  configuration.subscribe(change => {
+    invalidateReview();
+    if (change.source !== 'advanced') return;
+    for (const [id, path] of Object.entries(CONFIG_BINDINGS)) {
+      if (overlaps(change.path, path)) populateControl(document.getElementById(id), configuration.get(path));
+    }
+    if (overlaps(change.path, ['data', 'surveys'])) populateSurveys();
+    if (overlaps(change.path, ['region', 'counties'])) syncSelectedRegion();
+    if (overlaps(change.path, ['plan_generation', 'target_plans'])) {
+      const target = configuration.get(['plan_generation', 'target_plans']);
+      populateControl(document.getElementById('demand-target_plans'), target === 'all' ? 'all' : 'custom');
+      populateControl(document.getElementById('demand-target_plans_custom'), target === 'all' ? undefined : target);
+    }
+    refreshControlAppearance();
   });
-
-  return {
-    counties,
-    surveys,
-    modes,
-    mode_choice: {
-      method: 'survey_rates',
-      fallback_mode: val('modeChoice-fallback', 'car'),
-      chain_consistency: val('modeChoice-chainConsistency', true),
-      min_samples_per_purpose: 30,
-      max_chain_mode_retries: 10,
-    },
-    gtfs: {
-      catalog_max_age_days: val('gtfs-catalog_max_age', 7),
-      feed_max_age_days: val('gtfs-feed_max_age', 30),
-    },
-    plan_generation: {
-      target_plans: targetPlans,
-      scaling_factor: val('demand-scaling_factor', 0.1),
-      work_scaling_multiplier: val('demand-work_scaling_mult', 1.0),
-      random_seed: val('demand-random_seed', 42),
-      skip_if_exists: true,
-      supported_chain_types: ['home_work_home'],
-      chain_sampling_method: 'direct',
-      max_chain_retries: 10,
-      num_processes: 30,
-      default_mode: 'car',
-    },
-    chains: {
-      home_boost_factor: 1.0,
-      use_weighted_chains: true,
-      max_length: null,
-      min_length: val('chain-min_length', 3),
-      max_work_activities: val('chain-max_work', 2),
-    },
-    od_matrix: {
-      alpha: 0.1,
-      beta: 1.5,
-      max_iterations: 200,
-      convergence_threshold: 0.03,
-    },
-    time_models: {
-      kde_bandwidth: 'scott',
-      max_time_retries: 10,
-      max_duration_sample_attempts: 100,
-    },
-    duration_constraints: {
-      activity_durations: activityDurations,
-      trip_durations: {
-        default: { min_minutes: 1, max_minutes: 180 },
-      },
-      max_travel_buffer_minutes: val('time-max_travel_buffer', 180),
-      min_evening_home_minutes: 0,
-      trim_jitter_minutes: val('time-trim_jitter', 15),
-      departure_jitter_minutes: val('time-departure_jitter', 5),
-    },
-    poi_assignment: {
-      initial_radius_m: val('poi-initial_radius', 2000),
-      radius_increment_m: val('poi-radius_increment', 1000),
-      max_poi_retries: val('poi-max_retries', 10),
-    },
-    matsim: {
-      transit_network: val('transit-enabled', true),
-      gtfs_sample_day: val('gtfs-sample_day', 'dayWithMostTrips'),
-      pt2matsim: {
-        numOfThreads: 4,
-        candidateDistanceMultiplier: val('pt2m-candidateDistanceMultiplier', 1.6),
-        maxLinkCandidateDistance: val('pt2m-maxLinkCandidateDistance', 90),
-        maxTravelCostFactor: val('pt2m-maxTravelCostFactor', 5.0),
-        nLinkThreshold: val('pt2m-nLinkThreshold', 6),
-        travelCostType: val('pt2m-travelCostType', 'linkLength'),
-        removeNotUsedStopFacilities: true,
-        routingWithCandidateDistance: true,
-        scheduleFreespeedModes: 'artificial',
-      },
-      configurable_params: {
-        lastIteration: val('sim-iterations', 100),
-        'qsim.flowCapacityFactor': val('sim-flow_capacity', 0.1),
-        'qsim.storageCapacityFactor': val('sim-storage_capacity', 0.12),
-        'linkStats.averageLinkStatsOverIterations': val('sim-linkstats_avg', 5),
-      },
-    },
-    counts: {
-      enabled: val('counts-enabled', true),
-      rebuild: false,
-      fha: {
-        year: val('counts-fha_year', 2024),
-        month: parseInt(document.getElementById('counts-fha_month')?.value || '7'),
-        weight: val('counts-fha_weight', 1),
-      },
-      custom: {
-        enabled: false,
-        weight: 0,
-      },
-    },
-    evaluation: {
-      run_evaluation: val('eval-run', true),
-      ground_truth_data_dir: 'data/evaluation',
-      generate_spatial_maps: val('eval-spatial_maps', true),
-      generate_per_device_reports: val('eval-per_device', false),
-    },
-    nonwork_purposes: nonworkPurposes,
-  };
+  document.getElementById('advancedEditor').addEventListener('editor-validation', invalidateReview);
+  document.getElementById('btnValidateConfig').onclick = validateReview;
 }
 
 async function exportConfig() {
-  const formData = collectFormData();
-
   try {
+    if (!validateStep(currentStep)) return;
+    const inputs = document.querySelectorAll('input[data-edited], select[data-edited]');
+    for (const el of inputs) { if (!el.reportValidity()) return; }
+    if (STEPS[currentStep].id !== 'review') {
+      goToStep(STEPS.findIndex(step => step.id === 'review'));
+      return;
+    }
+    if (reviewFingerprint !== JSON.stringify(configuration.config) || advancedEditor.errorsList().length) {
+      await validateReview();
+      return; // The user reviews the result before another explicit export click.
+    }
+    const formData = collectFormData();
     const resp = await fetch('/api/export', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(formData),
     });
     const config = await resp.json();
+    if (!resp.ok) {
+      reviewFingerprint = null;
+      document.getElementById('btnExport').disabled = true;
+      throw new Error(config.detail || 'Configuration could not be exported.');
+    }
 
     // Download as file
     const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
@@ -863,7 +1049,7 @@ async function exportConfig() {
     URL.revokeObjectURL(url);
   } catch (err) {
     console.error('Export failed:', err);
-    alert('Export failed. Check the console for details.');
+    fillReviewList('reviewErrors', [`Export failed: ${err.message}`]);
   }
 }
 
@@ -883,7 +1069,8 @@ function formatNumber(n) {
 document.addEventListener('DOMContentLoaded', () => {
   renderStepProgress();
   setupNavigation();
-  initMap();
+  if (typeof L !== 'undefined') initMap();
+  else document.getElementById('mapMessage').textContent = 'Map unavailable. You can still remove selected counties and edit settings.';
   setupSurveys();
   setupModes();
   setupTransit();
@@ -893,6 +1080,9 @@ document.addEventListener('DOMContentLoaded', () => {
   setupSliders();
   setupCollapsibles();
   setupInfoPopups();
+  setupConfigurationBindings();
+  setupAdvancedAndReview();
+  setupPresetSelection();
 
   // Export button
   document.getElementById('btnExport').addEventListener('click', exportConfig);
